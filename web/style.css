@@ -1,0 +1,781 @@
+:root {
+    --pencil: #2d3436;
+    --pencil-light: #636e72;
+    --paper: #fefdf6;
+    --tape-color: rgba(254, 234, 161, 0.6);
+    --coffee: rgba(111, 78, 55, 0.1);
+    --font-hand: 'Architects Daughter', cursive;
+    --font-hand-heavy: 'Gochi Hand', cursive;
+    --font-body: 'Patrick Hand', cursive;
+    --transition: all 0.3s ease;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+html,
+body {
+    background-color: var(--paper);
+    color: var(--pencil);
+    font-family: var(--font-body);
+    font-size: 1.25rem;
+    line-height: 1.5;
+    overflow-x: hidden;
+    width: 100%;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 2rem;
+    width: 100%;
+}
+
+/* Paper Texture Effect */
+.paper-texture {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url('https://www.transparenttextures.com/patterns/notebook.png');
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.3;
+}
+
+.scribbles-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><path d="M50 50 Q 75 25, 100 50 T 150 50" fill="none" stroke="%232d3436" stroke-width="0.5" opacity="0.1"/><path d="M300 300 Q 325 275, 350 300 T 400 300" fill="none" stroke="%232d3436" stroke-width="0.5" opacity="0.1"/></svg>');
+    pointer-events: none;
+    z-index: -1;
+}
+
+/* Nav */
+nav {
+    padding: 2rem 0;
+}
+
+.nav-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+}
+
+.logo-sketch {
+    height: 60px;
+    filter: grayscale(1) contrast(1.2);
+    transform: rotate(-2deg);
+}
+
+.nav-links {
+    display: flex;
+    gap: 2rem;
+}
+
+.doodle-link {
+    color: var(--pencil);
+    text-decoration: none;
+    font-family: var(--font-hand);
+    font-weight: bold;
+    border-bottom: 2px dashed transparent;
+    transition: var(--transition);
+}
+
+.doodle-link:hover {
+    border-bottom-color: var(--pencil);
+    transform: rotate(2deg) scale(1.1);
+}
+
+/* Hero Section */
+.hero {
+    padding: 4rem 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.hero-writing-area {
+    width: 100%;
+    max-width: 900px;
+    margin-bottom: 2rem;
+    overflow: hidden;
+    /* Prevent text overflow */
+}
+
+.writing-svg {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    filter: drop-shadow(2px 2px 2px rgba(0, 0, 0, 0.1));
+}
+
+.knight-text-trace {
+    font-family: var(--font-hand-heavy);
+    font-size: 80px;
+    fill: none;
+    stroke: rgba(0, 0, 0, 0.05);
+    stroke-width: 1;
+}
+
+.knight-text-main {
+    font-family: var(--font-hand-heavy);
+    font-size: 80px;
+    fill: var(--pencil);
+}
+
+.subtitle-doodle {
+    font-family: var(--font-hand);
+    font-size: 1.4rem;
+    color: var(--pencil-light);
+    margin-top: 1rem;
+    font-style: italic;
+    word-wrap: break-word;
+    max-width: 100%;
+}
+
+.sketch-container {
+    position: relative;
+    width: 100%;
+    max-width: 800px;
+    margin: 3rem 0;
+    border: 2px solid var(--pencil);
+    padding: 10px;
+    background: #fff;
+    box-shadow: 10px 10px 0 rgba(0, 0, 0, 0.05);
+    transform: rotate(-1deg);
+    overflow: hidden;
+}
+
+.main-sketch {
+    width: 100%;
+    height: auto;
+    display: block;
+    opacity: 0.9;
+}
+
+.label-item {
+    position: absolute;
+    font-family: var(--font-hand);
+    font-size: 0.9rem;
+    background: var(--tape-color);
+    padding: 2px 8px;
+    transform: rotate(calc(-5deg + 10deg * var(--r, 0.5)));
+    pointer-events: none;
+}
+
+.writing-text::after {
+    content: '|';
+    animation: blink 0.8s infinite;
+    margin-left: 2px;
+}
+
+@keyframes blink {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0;
+    }
+}
+
+/* Founder Card */
+.founder-card {
+    display: flex;
+    gap: 3rem;
+    padding: 2rem;
+    background: #fff;
+    border: 3px solid var(--pencil);
+    border-radius: 20px 5px 20px 5px / 5px 20px 5px 20px;
+    margin: 2rem 0;
+    transform: rotate(1deg);
+    text-align: left;
+    max-width: 700px;
+}
+
+.profile-sketch h3 {
+    font-size: 2rem;
+    line-height: 1;
+}
+
+.role-badge {
+    display: inline-block;
+    background: var(--pencil);
+    color: #fff;
+    padding: 2px 10px;
+    font-family: var(--font-hand);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    transform: rotate(-3deg);
+    margin-bottom: 0.5rem;
+}
+
+.project-meta {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.5rem;
+    border-left: 2px dashed #ddd;
+    padding-left: 2rem;
+}
+
+.meta-item span {
+    font-family: var(--font-hand);
+    color: var(--pencil-light);
+    font-size: 0.9rem;
+}
+
+/* Vision Section */
+.sketch-box {
+    position: relative;
+    padding: 4rem;
+    background: #fff;
+    border: 2px solid var(--pencil);
+    margin: 6rem 0;
+    box-shadow: 15px 15px 0 rgba(0, 0, 0, 0.03);
+}
+
+.box-title {
+    position: absolute;
+    top: -2rem;
+    left: 2rem;
+    background: var(--paper);
+    padding: 0.5rem 1.5rem;
+    border: 2px solid var(--pencil);
+    transform: rotate(-2deg);
+}
+
+.tape {
+    position: absolute;
+    top: -15px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 30px;
+    background: var(--tape-color);
+    opacity: 0.8;
+}
+
+.vision-content {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+}
+
+@media (min-width: 800px) {
+    .vision-content {
+        grid-template-columns: 1.5fr 1fr;
+    }
+}
+
+.doodle-box {
+    background: #f9f9f9;
+    padding: 2rem;
+    border: 2px dashed var(--pencil-light);
+    transform: rotate(1deg);
+}
+
+.doodle-box h4 {
+    margin-bottom: 1rem;
+    text-decoration: underline wavy var(--pencil-light);
+}
+
+.doodle-box ul {
+    list-style-type: '✎ ';
+    padding-left: 1.5rem;
+}
+
+/* Concept Gallery */
+.concept-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 2rem;
+    margin-top: 2rem;
+    padding: 1rem;
+}
+
+.concept-item {
+    position: relative;
+    background: #fff;
+    padding: 0.5rem;
+    border: 1px solid var(--pencil);
+    box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.05);
+    transform: rotate(calc(var(--r, 0) * 4deg - 2deg));
+    transition: transform 0.3s;
+}
+
+.concept-item:hover {
+    transform: rotate(0deg) scale(1.05);
+    z-index: 10;
+}
+
+.sketch-img {
+    width: 100%;
+    height: auto;
+    display: block;
+    filter: sepia(0.2) contrast(1.1);
+}
+
+.sketch-label {
+    position: absolute;
+    background: var(--pencil);
+    color: var(--paper);
+    padding: 0.2rem 0.6rem;
+    font-family: var(--font-hand);
+    font-size: 0.8rem;
+    transform: rotate(-2deg);
+    z-index: 5;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+/* Roadmap Section */
+.roadmap-section {
+    padding: 6rem 0;
+}
+
+.section-header {
+    text-align: center;
+    margin-bottom: 4rem;
+}
+
+.section-header h2 {
+    font-size: 3rem;
+    text-decoration: underline wavy var(--pencil);
+}
+
+.roadmap-container {
+    width: 100%;
+    max-width: 100%;
+    padding: 4rem 0;
+    overflow: hidden;
+}
+
+.roadmap-path {
+    position: relative;
+    width: 100%;
+    height: 400px;
+}
+
+.path-svg {
+    width: 100%;
+    height: 100%;
+}
+
+.roadmap-nodes {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.node {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    z-index: 10;
+}
+
+.node-marker {
+    width: 100%;
+    height: 100%;
+    background: #fff;
+    border: 3px solid var(--pencil);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.node.active .node-marker {
+    background: var(--pencil);
+    transform: scale(1.4);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.node.current .node-marker {
+    background: var(--secondary);
+    border-color: var(--secondary);
+    animation: pulse-sketch 2s infinite;
+}
+
+@keyframes pulse-sketch {
+    0% {
+        transform: scale(1.4) rotate(0deg);
+    }
+
+    50% {
+        transform: scale(1.6) rotate(5deg);
+    }
+
+    100% {
+        transform: scale(1.4) rotate(0deg);
+    }
+}
+
+.node-popup {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    width: 240px;
+    background: #fff;
+    padding: 1.5rem;
+    border: 2px solid var(--pencil);
+    border-radius: 10px;
+    box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.05);
+    opacity: 0;
+    visibility: hidden;
+    transition: var(--transition);
+    text-align: center;
+    pointer-events: none;
+}
+
+.node:hover .node-popup {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.node-popup h4 {
+    font-family: var(--font-hand);
+    color: var(--secondary);
+    margin-bottom: 0.5rem;
+}
+
+.node-popup p {
+    font-size: 0.9rem;
+}
+
+/* Lab Section */
+.lab-section {
+    padding: 8rem 0;
+}
+
+.sketch-note {
+    position: relative;
+    max-width: 600px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 4rem;
+    border: 2px solid var(--pencil);
+    box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.05);
+    transform: rotate(-1deg);
+}
+
+.note-inner h3 {
+    margin-bottom: 1.5rem;
+    color: var(--secondary);
+}
+
+.note-actions {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 2.5rem;
+    justify-content: center;
+}
+
+.btn-doodle {
+    padding: 0.6rem 1.5rem;
+    border: 2px solid var(--pencil);
+    color: var(--pencil);
+    text-decoration: none;
+    font-family: var(--font-hand);
+    font-weight: bold;
+    border-radius: 5px;
+    transition: var(--transition);
+}
+
+.btn-doodle:hover {
+    background: var(--pencil);
+    color: #fff;
+    transform: rotate(3deg) translateY(-3px);
+}
+
+.coffee-stain {
+    position: absolute;
+    top: -20px;
+    right: -20px;
+    width: 100px;
+    height: 100px;
+    background: var(--coffee);
+    border-radius: 50%;
+    border: 2px solid rgba(111, 78, 55, 0.05);
+    pointer-events: none;
+}
+
+/* Footer */
+footer {
+    padding: 4rem 0;
+    text-align: center;
+    border-top: 2px dashed #ddd;
+    color: var(--pencil-light);
+    font-size: 1rem;
+}
+
+/* Mobile Adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding: 0 1rem;
+    }
+
+    .nav-content {
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        padding-bottom: 1rem;
+    }
+
+    .logo-sketch {
+        height: 50px;
+    }
+
+    .nav-links {
+        gap: 1rem;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .hero {
+        padding: 2rem 0;
+    }
+
+    .writing-svg {
+        height: 60px;
+    }
+
+    .knight-text-main,
+    .knight-text-trace {
+        font-size: clamp(40px, 12vw, 60px);
+    }
+
+    .subtitle-doodle {
+        font-size: 1.1rem;
+        padding: 0 1rem;
+    }
+
+    .sketch-container {
+        margin: 2rem 0;
+        width: 100%;
+        transform: rotate(0deg);
+        box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.05);
+        /* Smaller shadow on mobile */
+    }
+
+    .label-item {
+        font-size: 0.7rem;
+    }
+
+    .founder-card {
+        flex-direction: column;
+        gap: 1.5rem;
+        padding: 1.5rem;
+        width: 100%;
+        transform: rotate(0deg);
+        box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.05);
+    }
+
+    .project-meta {
+        border-left: none;
+        border-top: 2px dashed #ddd;
+        padding-left: 0;
+        padding-top: 1.5rem;
+    }
+
+    .sketch-box {
+        padding: 2rem 1rem;
+        margin: 4rem 0;
+    }
+
+    .box-title {
+        left: 1rem;
+        font-size: 0.9rem;
+    }
+
+    /* Roadmap Mobile Overhaul: The Double-Page Book */
+    .mobile-only {
+        display: block !important;
+    }
+
+    .desktop-only {
+        display: none !important;
+    }
+
+    .book-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+        padding: 0 1rem;
+        font-family: var(--font-hand);
+    }
+
+    .btn-flip {
+        background: #fff;
+        border: 2px solid var(--pencil);
+        padding: 0.5rem 1rem;
+        font-family: var(--font-hand);
+        font-weight: bold;
+        cursor: pointer;
+        border-radius: 5px;
+        box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.1);
+    }
+
+    .btn-flip:active {
+        box-shadow: none;
+        transform: translate(2px, 2px);
+    }
+
+    .roadmap-book {
+        position: relative;
+        width: 100%;
+        min-height: 500px;
+        background: #fff;
+        border: 2px solid var(--pencil);
+        box-shadow: 10px 10px 20px rgba(0, 0, 0, 0.1);
+        display: flex;
+        perspective: 2000px;
+        overflow: hidden;
+    }
+
+    .book-spine {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: rgba(0, 0, 0, 0.1);
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+        z-index: 10;
+        transform: translateX(-50%);
+    }
+
+    .book-page {
+        flex: 1;
+        padding: 2rem 1.5rem;
+        position: relative;
+        background-image:
+            linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+            linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+        background-size: 25px 25px;
+        overflow-y: auto;
+    }
+
+    .left-page {
+        border-right: 1px dashed rgba(0, 0, 0, 0.1);
+        background: linear-gradient(90deg, #f9f9f9, #fff 15px);
+    }
+
+    .right-page {
+        background: linear-gradient(-90deg, #f9f9f9, #fff 15px);
+    }
+
+    /* Animation Classes */
+    .page-flip-exit {
+        animation: pageFlipExit 0.6s forwards;
+    }
+
+    .page-flip-enter {
+        animation: pageFlipEnter 0.6s forwards;
+    }
+
+    @keyframes pageFlipExit {
+        0% {
+            transform: rotateY(0);
+            opacity: 1;
+        }
+
+        100% {
+            transform: rotateY(-90deg);
+            opacity: 0;
+        }
+    }
+
+    @keyframes pageFlipEnter {
+        0% {
+            transform: rotateY(90deg);
+            opacity: 0;
+        }
+
+        100% {
+            transform: rotateY(0);
+            opacity: 1;
+        }
+    }
+
+    /* Node Popup Reset for Book */
+    .node-popup {
+        position: relative !important;
+        bottom: auto !important;
+        left: auto !important;
+        transform: none !important;
+        width: 100% !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        padding: 0 !important;
+        background: none !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    .node-popup h3 {
+        font-size: 1.5rem;
+        margin-bottom: 1rem;
+        color: var(--pencil);
+        border-bottom: 2px solid var(--pencil);
+        display: inline-block;
+    }
+
+    .node-popup p {
+        font-size: 1.1rem;
+        line-height: 1.4;
+    }
+
+    .node-popup ul {
+        margin-top: 1rem;
+        padding-left: 1.2rem;
+    }
+
+    .node-marker {
+        display: none;
+    }
+
+    /* Lab Section Mobile */
+    .sketch-note {
+        padding: 2rem 1.5rem;
+        width: 100%;
+    }
+
+    .note-actions {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .btn-doodle {
+        text-align: center;
+    }
+}
+
+.mobile-only {
+    display: none;
+}
