@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KnightRider</title>
+    <meta name="description"
+        content="KnightRider: A hand-drawn journey into engine intelligence. From research to engineering, one doodle at a time.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Patrick+Hand&family=Gochi+Hand&family=Indie+Flower&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!--add opengraph with image -->
+    <meta property="og:image" content="assets/hero_sketch.png">
+    <meta property="og:title" content="KnightRider">
+    <meta property="og:description" content="Commoditizing engine intelligence.">
+</head>
+
+<body class="doodle-theme">
+    <div class="paper-texture"></div>
+    <div class="scribbles-bg"></div>
+
+    <nav>
+        <div class="nav-content container">
+            <div class="nav-left">
+                <img src="assets/logo.png" alt="KnightRider Logo" class="logo-sketch">
+            </div>
+            <div class="nav-links">
+                <a href="#vision" class="doodle-link">The Vision</a>
+                <a href="#timeline" class="doodle-link">The Road</a>
+                <a href="#lab" class="doodle-link">The Lab</a>
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero container">
+        <div class="hero-writing-area">
+            <svg class="writing-svg" viewBox="0 0 800 120">
+                <!-- Shadow/Trace for the animation -->
+                <text x="50%" y="80" text-anchor="middle" class="knight-text-trace">KNIGHTRIDER</text>
+                <!-- Animated Path will be injected or handled via JS/CSS -->
+                <text x="50%" y="80" text-anchor="middle" class="knight-text-main">KNIGHTRIDER</text>
+            </svg>
+            <p class="subtitle-doodle writing-text">"Commoditizing engine intelligence."</p>
+        </div>
+
+        <div class="sketch-container">
+            <img src="assets/hero_sketch.png" alt="Car Interior Sketch" class="main-sketch">
+            <div class="sketch-labels">
+                <span class="label-item" style="top: 10%; left: 15%;">Right Hand Drive!</span>
+                <span class="label-item" style="top: 20%; right: 10%;">Benz Interior</span>
+                <span class="label-item" style="bottom: 15%; left: 40%;">Raspberry Pi Core</span>
+            </div>
+        </div>
+
+        <div class="founder-card">
+            <div class="profile-sketch">
+                <span class="role-badge">Director</span>
+                <h3>Tarmica Chiwara</h3>
+                <p>Computer Engineer</p>
+            </div>
+            <div class="project-meta">
+                <div class="meta-item"><span>Status:</span> <strong>Genesis Phase</strong></div>
+                <div class="meta-item"><span>Engine:</span> <strong>Rust 🦀</strong></div>
+                <div class="meta-item"><span>Timeline:</span> <strong>~12 Months</strong></div>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section id="vision" class="vision-section container">
+            <div class="sketch-box">
+                <div class="box-title">
+                    <span class="tape"></span>
+                    <h2>The Mission</h2>
+                </div>
+                <div class="vision-content">
+                    <div class="v-text">
+                        <p>In Zimbabwe, auto-diagnostics is a walled garden. Prohibitive import costs mean consumers and
+                            local shops are locked out of their own engine's intelligence.</p>
+                        <p>This is so much that diagnostics still exists as a separate layer in the industry.</p><br>
+                        <p><i>This is just an information problem.</i></p><br>
+                        <p><strong>KnightRider</strong> is the compressed
+                            embodiment of that layer. Built in
+                            <strong>Rust</strong> for reliability, we are engineering a local solution to bridge this
+                            technological gap.
+                        </p>
+
+                        <!-- Concept Gallery -->
+                        <div class="concept-gallery">
+                            <div class="concept-item">
+                                <span class="sketch-label" style="top: -10px; left: 10px;">The Brain</span>
+                                <img src="assets/pi_macro.png" alt="Knight Rider Pi" class="sketch-img">
+                            </div>
+                            <div class="concept-item">
+                                <span class="sketch-label" style="bottom: -10px; right: 10px;">Interface</span>
+                                <img src="assets/multi_device_interface.png" alt="Multi-Device Interface"
+                                    class="sketch-img">
+                            </div>
+                            <div class="concept-item">
+                                <span class="sketch-label" style="bottom: -10px; left: 10px;">ECU Deep Dive</span>
+                                <img src="assets/ecu_sketch.png" alt="ECU Diagnostics" class="sketch-img">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="v-sketch">
+                        <div class="doodle-box">
+                            <h4>Design Goals</h4>
+                            <ul>
+                                <li>Vast Vehicle Database.</li>
+                                <li>Accurate ECU Diagnostics.</li>
+                                <li>Easy to Use.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="timeline" class="roadmap-section container">
+            <div class="section-header">
+                <h2>The Road Ahead</h2>
+                <p>A roadmap sketched in the heat of research.</p>
+            </div>
+
+            <div class="roadmap-container">
+                <!-- Mobile Book Controls -->
+                <div class="book-controls mobile-only">
+                    <button class="btn-flip prev" id="prevPage">← Prev</button>
+                    <span class="page-indicator">Spread <span id="currentPage">1</span> / 2</span>
+                    <button class="btn-flip next" id="nextPage">Next →</button>
+                </div>
+
+                <div class="roadmap-book mobile-only">
+                    <div class="book-spine"></div>
+                    <div class="book-page left-page" id="leftPageContent">
+                        <!-- Content injected by JS -->
+                    </div>
+                    <div class="book-page right-page" id="rightPageContent">
+                        <!-- Content injected by JS -->
+                    </div>
+                </div>
+
+                <div class="roadmap-path desktop-only">
+                    <svg class="path-svg" viewBox="0 0 1000 400" preserveAspectRatio="none">
+                        <path d="M0,200 Q150,50 300,200 T600,200 T1000,200" fill="none" stroke="#2d3436"
+                            stroke-width="4" stroke-dasharray="10 10" />
+                    </svg>
+
+                    <div class="roadmap-nodes">
+                        <!-- Node 1 -->
+                        <div class="node active done" style="left: 0%; top: 50%;">
+                            <div class="node-marker"></div>
+                            <div class="node-popup">
+                                <h4>The Scaffolding</h4>
+                                <p>System core built in Rust. CAN bus foundations ready.</p>
+                            </div>
+                        </div>
+
+                        <!-- Node 2 -->
+                        <div class="node active current" style="left: 30%; top: 12.5%;">
+                            <div class="node-marker"></div>
+                            <div class="node-popup">
+                                <h4>Genesis Phase</h4>
+                                <p class="writing-text">Deep research & hardware sourcing. Finding the Pi milestones...
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Node 3 -->
+                        <div class="node" style="left: 60%; top: 50%;">
+                            <div class="node-marker"></div>
+                            <div class="node-popup">
+                                <h4>The Lab</h4>
+                                <p>Experimental phase @ Toyo-Tech with Carti & team.</p>
+                            </div>
+                        </div>
+
+                        <!-- Node 4 -->
+                        <div class="node" style="left: 95%; top: 50%;">
+                            <div class="node-marker"></div>
+                            <div class="node-popup">
+                                <h4>Hardware V1</h4>
+                                <p>First field-ready units and live CAN data analysis.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="lab" class="lab-section container">
+            <div class="sketch-note">
+                <div class="note-inner">
+                    <h3>Keep an eye on us on this platform...</h3>
+                    <p>Investors aren't needed just yet, but the vision is growing.Regular updates are added on the
+                        roadmap above. Join the journey.</p>
+                    <div class="note-actions">
+                        <a href="mailto:tarimicac+kr@gmail.com" class="btn-doodle">Email Us</a>
+                        <a href="https://github.com/lordskyzw/KnightRider" class="btn-doodle">Github Repo</a>
+                    </div>
+                </div>
+                <div class="coffee-stain"></div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Tarmica Chiwara &copy; 2026</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
