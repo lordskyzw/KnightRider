@@ -1,4 +1,4 @@
-# Knight Rider
+# Knight Rider.
 
 A field-grade ECU diagnostic computer for Raspberry Pi.
 
