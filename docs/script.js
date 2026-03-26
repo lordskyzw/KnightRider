@@ -103,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     // Populate Right Page
                     const rightNode = bookNodes[startIdx + 1];
-                    rightPage.innerHTML = rightNode ? rightNode.querySelector('.node-popup').outerHTML : '<div class="node-popup"><h3>End of Road</h3><p>Stay tuned for more updates!</p></div>';
+                    rightPage.innerHTML = rightNode ? rightNode.querySelector('.node-popup').outerHTML : '<div class="node-popup"><h4>End of Road</h4><p>Stay tuned for more updates!</p></div>';
 
                     bookContainer.classList.remove('page-flip-exit');
                     bookContainer.classList.add('page-flip-enter');
@@ -121,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Toggle button states
             if (prevBtn) prevBtn.disabled = currentSpread === 0;
-            if (nextBtn) nextBtn.disabled = currentSpread === totalSpreads - 1;
+            if (nextBtn) nextBtn.disabled = currentSpread >= totalSpreads - 1;
         }
     };
 

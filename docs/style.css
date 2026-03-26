@@ -578,12 +578,12 @@ footer {
         margin: 2rem 0;
         width: 100%;
         transform: rotate(0deg);
-        box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.05);
-        /* Smaller shadow on mobile */
+        box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.05); /* Smaller shadow on mobile */
+        padding: 5px; /* less internal padding to maximize image size */
     }
 
     .label-item {
-        font-size: 0.7rem;
+        font-size: 0.75rem;
     }
 
     .founder-card {
@@ -592,7 +592,7 @@ footer {
         padding: 1.5rem;
         width: 100%;
         transform: rotate(0deg);
-        box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.05);
+        box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.05);
     }
 
     .project-meta {
@@ -604,12 +604,16 @@ footer {
 
     .sketch-box {
         padding: 2rem 1rem;
-        margin: 4rem 0;
+        margin: 2rem 0;
     }
 
     .box-title {
         left: 1rem;
         font-size: 0.9rem;
+    }
+
+    .vision-section, .roadmap-section, .lab-section {
+        padding: 3rem 0; /* Reduced general padding on mobile */
     }
 
     /* Roadmap Mobile Overhaul: The Double-Page Book */
@@ -649,10 +653,10 @@ footer {
     .roadmap-book {
         position: relative;
         width: 100%;
-        min-height: 500px;
+        min-height: 400px;
         background: #fff;
         border: 2px solid var(--pencil);
-        box-shadow: 10px 10px 20px rgba(0, 0, 0, 0.1);
+        box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.1);
         display: flex;
         perspective: 2000px;
         overflow: hidden;
