@@ -14,6 +14,10 @@ categories = ["embedded", "hardware-support"]
 name = "knight-rider"
 path = "src/main.rs"
 
+[[bin]]
+name = "obd-logger"
+path = "src/bin/obd_logger.rs"
+
 [dependencies]
 # Logging - structured logging with timestamps
 log = "0.4"
