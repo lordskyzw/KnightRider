@@ -136,7 +136,7 @@ pub type CanResult<T> = Result<T, CanError>;
 #[cfg(target_os = "linux")]
 mod linux_impl {
     use super::*;
-    use socketcan::{CanSocket, Socket};
+    use socketcan::{CanSocket, Socket, EmbeddedFrame};
     use std::os::unix::io::AsRawFd;
 
     /// CAN interface wrapper for SocketCAN.
@@ -246,7 +246,6 @@ mod linux_impl {
         ///
         /// Returns `CanError::Timeout` if no frame is received within the timeout.
         pub fn recv(&self) -> CanResult<CanFrame> {
-            use socketcan::frame::Frame;
 
             match self.socket.read_frame() {
                 Ok(frame) => {
