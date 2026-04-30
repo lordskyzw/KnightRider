@@ -117,9 +117,11 @@ OPTIONS:
     -o, --log-dir <PATH>      Log output directory [default: /var/log/knight-rider]
     -p, --passive             Passive mode: only listen, don't send requests
         --interval <MS>       Polling interval in milliseconds [default: 150]
+    -c, --check               Run hardware diagnostics (check HAT, power, CAN)
     -h, --help                Show this help message
 
 EXAMPLES:
+    sudo ./obd-logger --check                  # Verify CAN HAT is working
     sudo ./obd-logger                          # Basic usage
     sudo ./obd-logger -d 60                    # Log for 60 seconds
     sudo ./obd-logger --passive                # Just sniff the bus
@@ -148,6 +150,13 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
         print_help();
+        return;
+    }
+
+    if args.iter().any(|a| a == "--check" || a == "-c") {
+        let interface = get_arg(&args, &["--interface", "-i"])
+            .unwrap_or_else(|| "can0".to_string());
+        run_diagnostics(&interface);
         return;
     }
 
@@ -613,3 +622,169 @@ fn log_raw_frame(frame: &CanFrame, logger: &mut TimeseriesLogger) {
     };
     let _ = logger.log_frame(&entry);
 }
+
+// ── Hardware Diagnostics ────────────────────────────────────────────────────
+
+/// Run hardware diagnostics to verify CAN HAT is connected and working.
+fn run_diagnostics(interface_name: &str) {
+    println!();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║   Knight Rider - Hardware Diagnostics            ║");
+    println!("╠══════════════════════════════════════════════════╣");
+    println!("║  Checking CAN HAT, SPI, power, and interface    ║");
+    println!("╚══════════════════════════════════════════════════╝");
+    println!();
+
+    let mut pass_count = 0;
+    let mut fail_count = 0;
+    let mut warn_count = 0;
+
+    // ── Check 1: Platform ───────────────────────────────────────────────
+    print!("  [1/7] Platform .............. ");
+    #[cfg(target_os = "linux")]
+    {
+        println!("✓ Linux (aarch64)");
+        pass_count += 1;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        println!("✗ Not Linux — CAN HAT requires Linux");
+        fail_count += 1;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // ── Check 2: Board model ────────────────────────────────────────
+        print!("  [2/7] Board ................. ");
+        match std::fs::read_to_string("/proc/device-tree/model") {
+            Ok(model) => {
+                let model = model.trim_end_matches('\0');
+                if model.contains("Raspberry Pi") {
+                    println!("✓ {}", model);
+                    pass_count += 1;
+                } else {
+                    println!("⚠ {} (expected Raspberry Pi)", model);
+                    warn_count += 1;
+                }
+            }
+            Err(_) => {
+                println!("⚠ Cannot detect board model");
+                warn_count += 1;
+            }
+        }
+
+        // ── Check 3: SPI enabled ────────────────────────────────────────
+        print!("  [3/7] SPI bus ............... ");
+        let spi_exists = std::path::Path::new("/dev/spidev0.0").exists()
+            || std::path::Path::new("/dev/spidev0.1").exists();
+        if spi_exists {
+            println!("✓ SPI devices found");
+            pass_count += 1;
+        } else {
+            println!("✗ No SPI devices — add 'dtparam=spi=on' to /boot/firmware/config.txt");
+            fail_count += 1;
+        }
+
+        // ── Check 4: CAN kernel module ──────────────────────────────────
+        print!("  [4/7] CAN kernel module ..... ");
+        let dmesg = run_cmd("dmesg");
+        if dmesg.contains("CAN device driver interface") {
+            println!("✓ CAN driver loaded");
+            pass_count += 1;
+        } else {
+            println!("✗ CAN driver not loaded");
+            fail_count += 1;
+        }
+
+        // ── Check 5: MCP2515 probe ──────────────────────────────────────
+        print!("  [5/7] MCP2515 CAN chip ...... ");
+        if dmesg.contains("mcp251x") || dmesg.contains("MCP251") {
+            if dmesg.contains("Probe failed") || dmesg.contains("didn't enter in conf mode") {
+                println!("✗ MCP2515 detected but FAILED to initialize");
+                println!("        Possible causes:");
+                println!("        - HAT not seated firmly on GPIO pins");
+                println!("        - Wrong oscillator frequency in config.txt");
+                println!("        - Insufficient power supply (need 5V/5A)");
+                // Show the actual error
+                for line in dmesg.lines() {
+                    if line.contains("mcp251x") && (line.contains("Probe") || line.contains("didn't enter")) {
+                        println!("        dmesg: {}", line.trim());
+                    }
+                }
+                fail_count += 1;
+            } else {
+                println!("✓ MCP2515 initialized successfully");
+                pass_count += 1;
+            }
+        } else {
+            println!("✗ MCP2515 not detected — is the HAT connected to GPIO?");
+            println!("        Check /boot/firmware/config.txt has:");
+            println!("        dtoverlay=mcp2515-can0,oscillator=FREQ,interrupt=25");
+            fail_count += 1;
+        }
+
+        // ── Check 6: CAN interface ──────────────────────────────────────
+        print!("  [6/7] CAN interface ({}) .. ", interface_name);
+        let ip_output = run_cmd(&format!("ip link show {}", interface_name));
+        if ip_output.contains(interface_name) {
+            if ip_output.contains("UP") {
+                println!("✓ {} is UP", interface_name);
+                pass_count += 1;
+            } else {
+                println!("⚠ {} exists but is DOWN — run: sudo ip link set {} up", interface_name, interface_name);
+                warn_count += 1;
+            }
+        } else {
+            println!("✗ {} does not exist", interface_name);
+            fail_count += 1;
+        }
+
+        // ── Check 7: Power supply ───────────────────────────────────────
+        print!("  [7/7] Power supply .......... ");
+        let throttled = run_cmd("vcgencmd get_throttled");
+        if throttled.contains("0x0") {
+            println!("✓ No undervoltage detected");
+            pass_count += 1;
+        } else if throttled.contains("throttled=0x") {
+            let hex = throttled.trim().replace("throttled=", "");
+            println!("⚠ Throttling flags: {}", hex);
+            if throttled.contains("0x50000") || throttled.contains("0x50005") {
+                println!("        ⚡ UNDERVOLTAGE detected! Power supply is too weak.");
+                println!("        Use the official Pi 5 PSU (5V/5A, 27W).");
+            }
+            warn_count += 1;
+        } else {
+            println!("⚠ Cannot check ({})", throttled.trim());
+            warn_count += 1;
+        }
+    }
+
+    // ── Summary ─────────────────────────────────────────────────────────
+    println!();
+    println!("  ──────────────────────────────────────────────────");
+    println!("  Results: {} passed, {} warnings, {} failed", pass_count, warn_count, fail_count);
+    println!();
+
+    if fail_count == 0 && warn_count == 0 {
+        println!("  ✅ ALL CHECKS PASSED — CAN HAT is ready!");
+        println!("     Connect OBD-II cable to car and run:");
+        println!("     sudo obd-logger -d 60");
+    } else if fail_count == 0 {
+        println!("  ⚠  PASSED WITH WARNINGS — review items above");
+    } else {
+        println!("  ❌ {} CHECK(S) FAILED — fix the issues above before connecting to car", fail_count);
+    }
+    println!();
+}
+
+/// Run a shell command and return stdout.
+#[cfg(target_os = "linux")]
+fn run_cmd(cmd: &str) -> String {
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default()
+}
+
