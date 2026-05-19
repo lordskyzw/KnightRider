@@ -47,6 +47,7 @@ rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 bytes = "1"
 thiserror = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.22"
 
 # SocketCAN - Linux only, optional for cross-platform compilation
 [target.'cfg(target_os = "linux")'.dependencies]
