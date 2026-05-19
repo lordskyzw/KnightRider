@@ -1,0 +1,154 @@
+# Knight Rider — Session Resume Doc
+
+**Read me first if you're a future Claude session resuming this work.**
+
+This file is the live handoff between sessions. The auto-loaded memory at
+`.claude/projects/C--Users-Hp-830-G5-KnightRider/memory/` has the locked-in
+architecture; this file has the live backlog and the last-shipped state.
+**Git is authoritative** for what's actually in the code — memory describes
+intent, this file describes the plan, only git describes reality.
+
+---
+
+## What this project is (one paragraph)
+
+In-car telemetry + unsupervised fault detection. **Pi** (Rust binary
+`knight-rider`) reads CAN/OBD-II, buffers Pi-signed batches in SQLite, and
+serves a local LAN via HTTP+WS. **Flutter app** (`mobile/`) connects on LAN
+to show a live dashboard and acts as a **courier** that carries batches to
+the **cloud** (Railway, not built yet) when off-LAN. Cloud runs the
+**discovery track** (RA-Typed GP) against accumulating data — that's the
+research-publication path. A **known track** runs on the Pi for instant
+local alerts. The discovery→known-track promotion loop closes via cloud-built
+signed bundles delivered back to the Pi `/inbox` by courier phones.
+
+Demo phase = no auth on LAN, no ed25519 yet, no OTA. Single Pi, single car.
+
+---
+
+## Resume protocol
+
+When you start a session:
+
+1. **Read this file.**
+2. `git log --oneline -15` — see what's actually shipped.
+3. The auto-loaded memory in `.claude/projects/.../memory/MEMORY.md` already
+   gives you the architecture. Don't re-derive it; don't ask the user to
+   re-explain.
+4. Pick the next item from **Up next** below and propose it (don't just dive
+   in if it's non-trivial — confirm with the user first).
+
+When you finish a chunk of work, before stopping:
+
+1. Update this file: move the chunk from "Up next" to "Shipped" with the
+   commit SHA. Refine the remaining backlog if your work changed it.
+2. Commit `CONTINUE.md` with a `docs: update CONTINUE.md` commit (or fold
+   into your feature commit).
+
+---
+
+## Shipped so far
+
+| Commit   | What                                                        |
+|----------|-------------------------------------------------------------|
+| `20cf44f`| Extractor scaffolding: Sample broadcast channel, obd_poller migrated off main.rs, sniffer stub. |
+| `9e8a16d`| Versioned `BatchEnvelope` (CBOR, split envelope/payload versions) + SQLite WAL `Store` with monotonic batch_id that survives reboots. |
+| `12edb30`| axum server on `0.0.0.0:8080`: `/health`, `/ws/live`, `/backlog?since=N` (NDJSON, envelope_b64 verbatim), `/known-track/alerts` + `/inbox` stubs. |
+| `73d2b6b`| `main.rs` rewired to tokio service: CAN → broadcast → buffer-writer + server. Race-free subscribe order. ctrl-c flushes writer. |
+| `cc7dbdb`| Flutter mobile under `mobile/`: dark dashboard (RPM big + 5 small gauges + backlog counts + status chip), `WsClient` w/ 2s auto-reconnect, sqflite backlog store, settings screen. |
+
+Test coverage: 8 Rust unit tests pass (CBOR roundtrip + unknown-version rejection, append+query, empty-noop, pending count, device_id + batch_id reboot persistence). 1 Flutter widget smoke test.
+
+---
+
+## Up next (priority order)
+
+### 1. Cloud ingest API (Railway) — **unblocks the research path**
+The discovery track lives in the cloud. Until ingest exists, real OBD data
+can't reach the GP. This is the highest-leverage next move.
+
+Minimum viable shape:
+- Repo: separate (`knight-rider-cloud/` next to this, or new GitHub repo).
+- Stack: Rust (axum, sqlx, postgres) or Python (FastAPI + sqlalchemy) — pick what the user prefers.
+- `POST /v1/batches` — accepts NDJSON or array of `{batch_id, device_id, envelope_b64}`. Decodes the b64 → CBOR envelope. Verifies `envelope_schema_v == 1`. Stores raw bytes + decoded summary. Idempotent on `(device_id, batch_id)`.
+- `GET /v1/devices/:id/recent` — for the discovery worker to consume.
+- Postgres schema: `devices`, `batches` (with `raw BYTEA` + decoded columns), `discovery_runs`.
+- Auth: per-device API key in `X-Device-Token` header. Demo-phase: any token accepted, but stored.
+
+### 2. Flutter courier upload path
+Once the cloud exists. New `lib/uploader.dart`: background isolate that on
+connectivity-change polls `BacklogDb` for un-uploaded rows and POSTs them.
+Mark `uploaded_at` on success. Already-uploaded rows are dedup'd by cloud.
+
+### 3. opendbc sniffer (the demo wow-moment)
+Replace the no-op in `src/extractor/sniffer.rs`. Options for DBC parsing:
+- `can-dbc` crate (basic but works)
+- vendor a parsed subset of opendbc as JSON tables (no runtime DBC parsing)
+The sniffer needs its own `CanInterface` instance reading raw frames; the
+poller's interface can't be shared because `recv()` is owned by it. Wire it
+into `main.rs` after picking the DBC approach.
+
+### 4. Known-track inference on the Pi
+New module `src/known_track/`. Inputs: live `Sample` stream + a loaded
+`KnownTrackBundle` (signed cloud artifact). Outputs: alerts to `/known-track/alerts`. For demo: DTC reading via OBD Mode 03 + a handful of threshold rules. The model-bundle loader (`src/known_track/bundle.rs`) with atomic swap + previous-bundle rollback is the harder half — but it's the piece the architecture loop hinges on.
+
+### 5. ed25519 batch signing
+Adds a `signature` field that's already reserved in `BatchEnvelope`. Pi
+generates keypair on first boot, persists privkey in `meta` table, registers
+pubkey with cloud on first contact (or out-of-band). Cloud verifies each
+batch's signature against the registered key. **Don't ship this until
+there's a real cloud to verify against** — premature otherwise.
+
+### 6. Pi↔phone pairing
+Deferred per user. Revisit when leaving demo phase. Likely flow: QR code
+shown via a quick CLI helper on the Pi (since Pi has no screen), scanned by
+Flutter, exchange a symmetric key cached on each side.
+
+### 7. App / binary OTA
+Deferred. Use `git pull && cargo build && systemctl restart` on the Pi for
+now. Real OTA is ~1-2 weeks of plumbing (signed bundles, A/B partitions,
+boot-time rollback) and isn't needed for demo.
+
+---
+
+## House rules (re-state every session — these are easy to drift from)
+
+- **Don't ask the user to re-explain the architecture.** It's in memory.
+- **Commit per logical chunk** — credits may run out mid-session; preserve work.
+- **Demo phase**: open LAN, no signing, single car. Don't quietly add auth/signing/OTA.
+- **Pi runs no internet code.** Sync is entirely the phone app's job.
+- **Idempotency on cloud ingest is non-negotiable.**
+- **Two extractors → one broadcast channel.** Don't fork the pipeline.
+- **Phones store `envelope_b64` verbatim.** Don't decode-and-reencode mid-courier — the (future) Pi signature has to stay valid end-to-end.
+- **CRLF warnings on git** are expected on Windows — ignore them.
+
+---
+
+## Quick verification
+
+```bash
+# Rust side
+cargo test --lib                 # 8 tests should pass
+cargo check --bins --tests       # no errors (warnings in obd-logger are pre-existing)
+
+# Pi service
+cargo run --bin knight-rider -- --interface vcan0 --bind 127.0.0.1:8088
+curl http://127.0.0.1:8088/health
+curl 'http://127.0.0.1:8088/backlog?since=0&limit=10'
+
+# Flutter
+cd mobile
+flutter analyze                  # No issues
+flutter test                     # 1 widget test passes
+```
+
+---
+
+## How to invoke this on resume
+
+Paste this prompt into a fresh Claude Code session:
+
+> Resume Knight Rider. Read `CONTINUE.md`, then `git log --oneline -15`. The
+> architecture is locked in memory — don't re-derive it. Pick the top item
+> from "Up next" and propose how you'd tackle it before writing code. When
+> you finish a chunk, your last step is to update CONTINUE.md and commit it.
