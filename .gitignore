@@ -1,0 +1,35 @@
+# Rust build artifacts
+target/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# Datasets (too large for git — download separately)
+real_world/ims_data/
+real_world/data/
+real_world/cmapss_data/
+real_world/EngineFaultDB/
+
+# Archives
+*.rar
+*.7z
+*.zip
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+*.log

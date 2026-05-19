@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ':*)",
+      "Bash(python -c \"import numpy, scipy, sklearn, pandas; print\\('All deps OK'\\)\")",
+      "Bash(python discovery_track/run_discovery_v2.py)",
+      "Bash(tasklist)",
+      "Bash(python discovery_track/run_discovery_v3.py)",
+      "Bash(python discovery_track/run_discovery_v4.py)",
+      "Bash(find \"C:\\\\Users\\\\Hp 830 G5\\\\KnightRider\\\\experiments\" -name \"*.py\" -type f -exec wc -l {} \\\\;)",
+      "Bash(find . -name \"*.py\" -type f -exec grep -l \"trial\\\\|Trial\\\\|session\\\\|Session\" {} \\\\;)",
+      "Bash(python discovery_track/run_injection.py)",
+      "Bash(python discovery_track/run_framework.py)",
+      "Bash(python discovery_track/run_discovery_v5.py)",
+      "Bash(tee discovery_track/v5_output.txt)",
+      "Bash(python discovery_track/run_robustness.py)",
+      "Bash(tee discovery_track/robustness_output.txt)",
+      "Bash(where pdflatex:*)",
+      "Bash(pip show:*)",
+      "Bash(python discovery_track/paper/build_pdf.py)",
+      "WebSearch",
+      "Bash(python real_world/run_cwru.py)",
+      "Bash(python:*)",
+      "Bash(curl -sI \"https://phm-datasets.s3.amazonaws.com/NASA/4.+Bearings.zip\")",
+      "Bash(curl -L -o bearings.zip \"https://phm-datasets.s3.amazonaws.com/NASA/4.+Bearings.zip\" --progress-bar)",
+      "Bash(pip install:*)",
+      "Bash(ls:*)",
+      "Bash(taskkill //F //PID 7936 //PID 19724 //PID 23328)",
+      "WebFetch(domain:borealisdata.ca)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(mkdir:*)",
+      "Bash(rm:*)",
+      "Bash(timeout 60 bash -c 'while [ ! -s \"C:/Users/HP830G~1/AppData/Local/Temp/claude/C--Users-Hp-830-G5-KnightRider/4249ddcd-c140-4aee-bf42-4a469110478d/tasks/b7kabjycl.output\" ]; do sleep 2; done')",
+      "Bash(taskkill /PID 19556 /F)",
+      "Bash(taskkill /PID 14112 /F)",
+      "Bash(taskkill //PID 19556 //F)",
+      "Bash(taskkill //PID 14112 //F)"
+    ]
+  }
+}

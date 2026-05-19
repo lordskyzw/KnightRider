@@ -1,0 +1,2 @@
+- [User Profile](user_profile.md) — student collaborating with math professor, needs plain + formal explanations
+- [Discovery Track](discovery_track_findings.md) — GP feature evolution v1-v4 findings, H3 partial validation
