@@ -35,7 +35,16 @@
       "Bash(taskkill /PID 19556 /F)",
       "Bash(taskkill /PID 14112 /F)",
       "Bash(taskkill //PID 19556 //F)",
-      "Bash(taskkill //PID 14112 //F)"
+      "Bash(taskkill //PID 14112 //F)",
+      "Bash(cargo check *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(cargo test *)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(flutter create mobile --org dev.knightrider --project-name knight_rider_mobile --platforms android,ios 2>&1 | Select-Object -Last 30)",
+      "PowerShell(flutter analyze *)",
+      "PowerShell(flutter test *)"
     ]
-  }
+  },
+  "spinnerTipsEnabled": false
 }
