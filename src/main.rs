@@ -1,280 +1,147 @@
-//! Knight Rider - ECU Diagnostic Computer
+//! Knight Rider service entrypoint.
 //!
-//! A field-grade automotive diagnostic tool for Raspberry Pi.
-//! Communicates with vehicle ECUs via CAN / OBD-II.
+//! Runs the full pipeline: CAN extractor → broadcast channel → buffer writer
+//! + WebSocket / HTTP server. The Pi is the canonical store; phones pull
+//! `/backlog?since=N` and act as couriers to the cloud.
 //!
 //! # Usage
 //!
 //! ```bash
-//! # Run with real CAN interface
-//! ./knight-rider --interface can0
+//! # Pi: production
+//! knight-rider --interface can0 --buffer /var/lib/knight-rider/buffer.sqlite
 //!
-//! # Run with virtual CAN (for testing)
-//! ./knight-rider --interface vcan0
+//! # Dev with vcan
+//! knight-rider --interface vcan0
 //!
-//! # Enable debug logging
-//! RUST_LOG=debug ./knight-rider --interface vcan0
+//! # Override server bind
+//! knight-rider --bind 0.0.0.0:9090
 //! ```
 
-mod can;
-mod core;
-mod logging;
-mod ui;
-
+use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use chrono::Utc;
+use knight_rider::buffer::store::Store;
+use knight_rider::buffer::writer;
+use knight_rider::can::CanInterface;
+use knight_rider::extractor::{self, obd_poller};
+use knight_rider::server::{self, AppState};
 
-use crate::can::{CanFrame, CanInterface, IsoTpSession, ObdPid, ObdRequest, ObdResponse};
-use crate::can::obd::addressing;
-use crate::can::scheduler::RequestScheduler;
-use crate::core::signals::{Signal, SignalKind};
-use crate::core::state_machine::{State, StateMachine};
-use crate::logging::timeseries::{RawFrameEntry, TimeseriesLogger};
-
-/// Configuration for the application.
-struct Config {
-    interface_name: String,
-    run_duration: Duration,
-    log_path: PathBuf,
+struct Args {
+    interface: String,
+    buffer_path: PathBuf,
+    bind_addr: SocketAddr,
 }
 
-impl Config {
-    fn from_args() -> Self {
+impl Args {
+    fn from_env() -> Self {
         let args: Vec<String> = std::env::args().collect();
-        
-        let interface_name = args
-            .iter()
-            .position(|a| a == "--interface" || a == "-i")
-            .and_then(|i| args.get(i + 1))
-            .map(|s| s.clone())
-            .unwrap_or_else(|| "vcan0".to_string());
-
-        let run_duration = args
-            .iter()
-            .position(|a| a == "--duration" || a == "-d")
-            .and_then(|i| args.get(i + 1))
+        let interface = arg(&args, &["--interface", "-i"]).unwrap_or_else(|| "can0".into());
+        let buffer_path = arg(&args, &["--buffer", "-b"])
+            .map(PathBuf::from)
+            .unwrap_or_else(default_buffer_path);
+        let bind_addr = arg(&args, &["--bind"])
             .and_then(|s| s.parse().ok())
-            .map(Duration::from_secs)
-            .unwrap_or(Duration::from_secs(60));
-
-        let log_path = PathBuf::from("/tmp/knight-rider-raw.log");
-
-        Self {
-            interface_name,
-            run_duration,
-            log_path,
-        }
+            .unwrap_or_else(server::default_addr);
+        Self { interface, buffer_path, bind_addr }
     }
 }
 
-/// Main application entry point.
-fn main() {
-    // Initialize logging
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info")
-    ).init();
+fn arg(args: &[String], flags: &[&str]) -> Option<String> {
+    args.iter()
+        .position(|a| flags.contains(&a.as_str()))
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+}
+
+fn default_buffer_path() -> PathBuf {
+    if cfg!(target_os = "linux") {
+        PathBuf::from("/var/lib/knight-rider/buffer.sqlite")
+    } else {
+        PathBuf::from("./knight-rider-buffer.sqlite")
+    }
+}
+
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+async fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     log::info!("Knight Rider v{}", env!("CARGO_PKG_VERSION"));
-    log::info!("Field-grade ECU diagnostic computer");
+    let args = Args::from_env();
 
-    let config = Config::from_args();
-    
-    if let Err(e) = run(config) {
-        log::error!("Application error: {}", e);
-        std::process::exit(1);
-    }
-}
-
-/// Runs the main application loop.
-fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("Opening CAN interface: {}", config.interface_name);
-
-    // Initialize CAN interface
-    let mut can = CanInterface::open(&config.interface_name)?;
-    can.set_read_timeout(Some(Duration::from_millis(200)))?;
-
-    log::info!("CAN interface opened successfully");
-
-    // Initialize logger
-    let mut logger = TimeseriesLogger::new(config.log_path.clone())?;
-    log::info!("Logging raw frames to: {}", config.log_path.display());
-
-    // Initialize state machine and scheduler
-    let mut state_machine = StateMachine::new();
-    let mut scheduler = RequestScheduler::default();
-    let mut isotp_session = IsoTpSession::new();
-
-    state_machine.transition_to(State::Initializing);
-
-    // Query supported PIDs first
-    log::info!("Querying supported PIDs...");
-    query_supported_pids(&can, &mut isotp_session)?;
-
-    state_machine.transition_to(State::Connected);
-
-    // Main polling loop
-    let start_time = Instant::now();
-    let request = ObdRequest::current_data(ObdPid::EngineRpm);
-
-    log::info!("Starting RPM polling for {} seconds", config.run_duration.as_secs());
-
-    while start_time.elapsed() < config.run_duration {
-        // Wait for next polling interval
-        scheduler.wait_for_next();
-
-        // Send RPM request
-        let request_frame = CanFrame::new(request.can_id(), &request.to_can_data());
-        
-        if let Err(e) = can.send(&request_frame) {
-            log::warn!("Failed to send request: {}", e);
-            state_machine.record_error();
-            continue;
+    // ── CAN interface ──────────────────────────────────────────────────────
+    log::info!("opening CAN interface: {}", args.interface);
+    let can = match CanInterface::open(&args.interface) {
+        Ok(c) => c,
+        Err(e) => {
+            log::error!("failed to open CAN: {}", e);
+            std::process::exit(1);
         }
+    };
 
-        scheduler.mark_sent();
-        isotp_session.reset();
+    // ── Canonical buffer ──────────────────────────────────────────────────
+    if let Some(parent) = args.buffer_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    log::info!("opening buffer: {}", args.buffer_path.display());
+    let store = match Store::open(&args.buffer_path) {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("failed to open buffer: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let device_id = store.device_id();
+    let next_batch = store.next_batch_id();
+    let pending = store.pending_count().unwrap_or(0);
+    log::info!("device_id={} next_batch_id={} pending={}", device_id, next_batch, pending);
+    let store = Arc::new(Mutex::new(store));
 
-        // Wait for response
-        let response = wait_for_response(&can, &mut isotp_session, &mut logger, scheduler.timeout());
+    // ── Broadcast channel ─────────────────────────────────────────────────
+    let (tx, _initial_rx) = extractor::channel();
 
-        match response {
-            Some(payload) => {
-                match ObdResponse::parse(0x7E8, &payload) {
-                    Ok(response) => {
-                        if let Ok(decoded) = response.decode(ObdPid::EngineRpm) {
-                            let signal = Signal::new(
-                                SignalKind::EngineRpm,
-                                decoded.value,
-                                decoded.unit,
-                            );
-                            println!("{}", signal.format_console());
-                            state_machine.record_success();
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to parse response: {}", e);
-                        state_machine.record_error();
-                    }
-                }
-            }
-            None => {
-                // Timeout
-                let signal = Signal::new(SignalKind::Timeout("RPM"), 0.0, "");
-                println!("{}", signal.format_console());
+    // Subscribe the writer BEFORE the poller starts emitting, so we don't
+    // race past the first batch of samples while the task is still being
+    // scheduled.
+    let writer_rx = tx.subscribe();
+
+    // ── Extractors ────────────────────────────────────────────────────────
+    let _poller = obd_poller::spawn(can, tx.clone(), Default::default());
+    log::info!("obd-poller spawned");
+    // Sniffer is wired in once opendbc decode lands. It needs its own CAN
+    // handle; skip until then to avoid a second interface open with nothing
+    // to do.
+
+    // ── Buffer writer ─────────────────────────────────────────────────────
+    let writer_handle = tokio::spawn({
+        let store = store.clone();
+        async move {
+            writer::run(store, writer_rx, writer::WriterConfig::default()).await;
+        }
+    });
+
+    // ── HTTP + WS server ──────────────────────────────────────────────────
+    let serve_handle = tokio::spawn({
+        let state = AppState { samples_tx: tx.clone(), store: store.clone() };
+        let addr = args.bind_addr;
+        async move {
+            if let Err(e) = server::serve(state, addr).await {
+                log::error!("server error: {}", e);
             }
         }
+    });
 
-        // Check state
-        if state_machine.state() == State::Error {
-            log::warn!("Too many errors, attempting recovery...");
-            std::thread::sleep(Duration::from_secs(1));
-            state_machine.transition_to(State::Connected);
-        }
+    // ── Wait for shutdown ─────────────────────────────────────────────────
+    if let Err(e) = tokio::signal::ctrl_c().await {
+        log::warn!("ctrl_c handler failed: {}", e);
     }
+    log::info!("shutdown signal received");
 
-    log::info!("Polling complete. Total duration: {:?}", start_time.elapsed());
-    logger.flush()?;
+    // Drop the broadcast sender so the writer's receiver closes and flushes.
+    drop(tx);
+    let _ = tokio::time::timeout(Duration::from_secs(2), writer_handle).await;
 
-    Ok(())
-}
-
-/// Waits for an OBD-II response within the timeout period.
-fn wait_for_response(
-    can: &CanInterface,
-    isotp: &mut IsoTpSession,
-    logger: &mut TimeseriesLogger,
-    timeout: Duration,
-) -> Option<Vec<u8>> {
-    let start = Instant::now();
-
-    while start.elapsed() < timeout {
-        match can.recv() {
-            Ok(frame) => {
-                // Log raw frame
-                let entry = RawFrameEntry {
-                    timestamp: Utc::now(),
-                    can_id: frame.id,
-                    dlc: frame.dlc,
-                    data: frame.data,
-                };
-                let _ = logger.log_frame(&entry);
-
-                // Check if this is an OBD-II response
-                if !addressing::is_obd_response(frame.id) {
-                    continue;
-                }
-
-                // Process through ISO-TP
-                match isotp.receive(frame.data()) {
-                    Ok(Some(payload)) => return Some(payload),
-                    Ok(None) => continue, // Need more frames
-                    Err(e) => {
-                        log::warn!("ISO-TP error: {}", e);
-                        return None;
-                    }
-                }
-            }
-            Err(crate::can::interface::CanError::Timeout) => {
-                // Continue waiting
-            }
-            Err(e) => {
-                log::warn!("CAN receive error: {}", e);
-                return None;
-            }
-        }
-    }
-
-    None
-}
-
-/// Queries supported PIDs (Mode 01 PID 00).
-fn query_supported_pids(
-    can: &CanInterface,
-    isotp: &mut IsoTpSession,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let request = ObdRequest::current_data(ObdPid::SupportedPids01To20);
-    let frame = CanFrame::new(request.can_id(), &request.to_can_data());
-
-    can.send(&frame)?;
-
-    // Wait briefly for response (we don't strictly need it for v1)
-    let timeout = Duration::from_millis(500);
-    let start = Instant::now();
-
-    while start.elapsed() < timeout {
-        match can.recv() {
-            Ok(frame) if addressing::is_obd_response(frame.id) => {
-                if let Ok(Some(payload)) = isotp.receive(frame.data()) {
-                    if let Ok(response) = ObdResponse::parse(frame.id, &payload) {
-                        let supported = crate::can::obd::parse_supported_pids(&response.data);
-                        log::info!("ECU 0x{:03X} supports PIDs: {:?}", frame.id, supported);
-                        return Ok(());
-                    }
-                }
-            }
-            Ok(_) => continue,
-            Err(crate::can::interface::CanError::Timeout) => continue,
-            Err(_) => break,
-        }
-    }
-
-    log::warn!("No response to supported PIDs query (ECU may be offline)");
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_defaults() {
-        // Just verify it doesn't panic
-        let _ = Config {
-            interface_name: "vcan0".to_string(),
-            run_duration: Duration::from_secs(60),
-            log_path: PathBuf::from("/tmp/test.log"),
-        };
-    }
+    serve_handle.abort();
+    log::info!("bye");
 }

@@ -10,3 +10,4 @@
 
 pub mod schema;
 pub mod store;
+pub mod writer;
