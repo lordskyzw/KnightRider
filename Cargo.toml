@@ -24,11 +24,29 @@ log = "0.4"
 env_logger = "0.11"
 
 # Timestamps - ISO 8601 formatting
-chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 
 # Serialization - for config and test fixtures
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+ciborium = "0.2"
+
+# Async runtime - drives buffer writer, server, and downstream consumers
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "io-util", "net"] }
+futures-util = "0.3"
+
+# HTTP + WebSocket server for the local Pi LAN service
+axum = { version = "0.7", features = ["ws", "macros"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tokio-util = { version = "0.7", features = ["io"] }
+
+# Canonical buffer storage
+rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
+
+# Misc
+bytes = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
 
 # SocketCAN - Linux only, optional for cross-platform compilation
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -39,6 +57,7 @@ nix = { version = "0.29", features = ["net", "poll"] }
 [dev-dependencies]
 # For testing
 tempfile = "3.14"
+tokio = { version = "1", features = ["macros", "rt", "test-util"] }
 
 [profile.release]
 # Optimize for size and speed on embedded target
