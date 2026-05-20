@@ -79,7 +79,15 @@ Two halves:
 - **Deploy**: `cd ../knight-rider-cloud && railway login && railway init && railway add --plugin postgresql && railway up`. Verify `<deploy>.up.railway.app/health` returns 200. Save the URL.
 - **Wire courier**: new `mobile/lib/uploader.dart`. Background timer (or `connectivity_plus` listener) that, when off-LAN AND has internet, reads un-uploaded rows from `BacklogDb` and POSTs them to the cloud URL in chunks of ~100 rows. On 200 response, calls `BacklogDb.markUploaded(batchId, now)`. Cloud URL stored in `PiConfig`. Cloud's idempotency makes retries safe.
 
-### 2. opendbc sniffer (the demo wow-moment)
+### 2. Discovery worker skeleton (cloud-side)
+In `knight-rider-cloud`. New `src/knight_rider_cloud/worker/`. Reads recent
+batches from Postgres, CBOR-decodes each envelope (Python `cbor2`), extracts
+samples into a per-device timeseries, then runs the RA-Typed GP. For first
+ship: just decode + write a `discovery_runs` row with a summary; actual GP
+integration comes after we know the data shape in practice. Also add
+`GET /v1/devices/:id/recent` so the worker (or you) can inspect what arrived.
+
+### 3. opendbc sniffer (the demo wow-moment)
 Replace the no-op in `src/extractor/sniffer.rs`. Options for DBC parsing:
 - `can-dbc` crate (basic but works)
 - vendor a parsed subset of opendbc as JSON tables (no runtime DBC parsing)
@@ -91,19 +99,19 @@ into `main.rs` after picking the DBC approach.
 New module `src/known_track/`. Inputs: live `Sample` stream + a loaded
 `KnownTrackBundle` (signed cloud artifact). Outputs: alerts to `/known-track/alerts`. For demo: DTC reading via OBD Mode 03 + a handful of threshold rules. The model-bundle loader (`src/known_track/bundle.rs`) with atomic swap + previous-bundle rollback is the harder half — but it's the piece the architecture loop hinges on.
 
-### 6. ed25519 batch signing
+### 5. ed25519 batch signing
 Adds a `signature` field that's already reserved in `BatchEnvelope`. Pi
 generates keypair on first boot, persists privkey in `meta` table, registers
 pubkey with cloud on first contact (or out-of-band). Cloud verifies each
 batch's signature against the registered key. **Don't ship this until
 there's a real cloud to verify against** — premature otherwise.
 
-### 7. Pi↔phone pairing
+### 6. Pi↔phone pairing
 Deferred per user. Revisit when leaving demo phase. Likely flow: QR code
 shown via a quick CLI helper on the Pi (since Pi has no screen), scanned by
 Flutter, exchange a symmetric key cached on each side.
 
-### 8. App / binary OTA
+### 7. App / binary OTA
 Deferred. Use `git pull && cargo build && systemctl restart` on the Pi for
 now. Real OTA is ~1-2 weeks of plumbing (signed bundles, A/B partitions,
 boot-time rollback) and isn't needed for demo.
