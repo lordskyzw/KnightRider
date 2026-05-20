@@ -49,6 +49,8 @@ When you finish a chunk of work, before stopping:
 
 ## Shipped so far
 
+This repo (`KnightRider`):
+
 | Commit   | What                                                        |
 |----------|-------------------------------------------------------------|
 | `20cf44f`| Extractor scaffolding: Sample broadcast channel, obd_poller migrated off main.rs, sniffer stub. |
@@ -57,30 +59,27 @@ When you finish a chunk of work, before stopping:
 | `73d2b6b`| `main.rs` rewired to tokio service: CAN → broadcast → buffer-writer + server. Race-free subscribe order. ctrl-c flushes writer. |
 | `cc7dbdb`| Flutter mobile under `mobile/`: dark dashboard (RPM big + 5 small gauges + backlog counts + status chip), `WsClient` w/ 2s auto-reconnect, sqflite backlog store, settings screen. |
 
-Test coverage: 8 Rust unit tests pass (CBOR roundtrip + unknown-version rejection, append+query, empty-noop, pending count, device_id + batch_id reboot persistence). 1 Flutter widget smoke test.
+Sibling repo `../knight-rider-cloud`:
+
+| Commit   | What                                                        |
+|----------|-------------------------------------------------------------|
+| `e9ffa16`| Cloud ingest API. FastAPI + SQLModel. `POST /v1/batches` accepts the Pi's `/backlog` JSON/NDJSON rows, idempotent on `(device_id, batch_id)`, stores raw envelope bytes verbatim. SQLite local + Postgres on Railway via `DATABASE_URL`. railway.toml + Procfile + README with deploy steps. 8 pytest tests pass. **Not yet deployed to Railway** — needs `railway login && railway init && railway add --plugin postgresql && railway up`. |
+
+Test coverage: 8 Rust unit tests + 1 Flutter widget test + 8 cloud pytest tests, all passing.
 
 ---
 
 ## Up next (priority order)
 
-### 1. Cloud ingest API (Railway) — **unblocks the research path**
-The discovery track lives in the cloud. Until ingest exists, real OBD data
-can't reach the GP. This is the highest-leverage next move.
+### 1. Deploy cloud + Flutter courier upload path
+Cloud exists locally but not on Railway. Once deployed, wire the Flutter app
+to POST `BacklogDb` rows to `<railway-url>/v1/batches`.
 
-Minimum viable shape:
-- Repo: separate (`knight-rider-cloud/` next to this, or new GitHub repo).
-- Stack: Rust (axum, sqlx, postgres) or Python (FastAPI + sqlalchemy) — pick what the user prefers.
-- `POST /v1/batches` — accepts NDJSON or array of `{batch_id, device_id, envelope_b64}`. Decodes the b64 → CBOR envelope. Verifies `envelope_schema_v == 1`. Stores raw bytes + decoded summary. Idempotent on `(device_id, batch_id)`.
-- `GET /v1/devices/:id/recent` — for the discovery worker to consume.
-- Postgres schema: `devices`, `batches` (with `raw BYTEA` + decoded columns), `discovery_runs`.
-- Auth: per-device API key in `X-Device-Token` header. Demo-phase: any token accepted, but stored.
+Two halves:
+- **Deploy**: `cd ../knight-rider-cloud && railway login && railway init && railway add --plugin postgresql && railway up`. Verify `<deploy>.up.railway.app/health` returns 200. Save the URL.
+- **Wire courier**: new `mobile/lib/uploader.dart`. Background timer (or `connectivity_plus` listener) that, when off-LAN AND has internet, reads un-uploaded rows from `BacklogDb` and POSTs them to the cloud URL in chunks of ~100 rows. On 200 response, calls `BacklogDb.markUploaded(batchId, now)`. Cloud URL stored in `PiConfig`. Cloud's idempotency makes retries safe.
 
-### 2. Flutter courier upload path
-Once the cloud exists. New `lib/uploader.dart`: background isolate that on
-connectivity-change polls `BacklogDb` for un-uploaded rows and POSTs them.
-Mark `uploaded_at` on success. Already-uploaded rows are dedup'd by cloud.
-
-### 3. opendbc sniffer (the demo wow-moment)
+### 2. opendbc sniffer (the demo wow-moment)
 Replace the no-op in `src/extractor/sniffer.rs`. Options for DBC parsing:
 - `can-dbc` crate (basic but works)
 - vendor a parsed subset of opendbc as JSON tables (no runtime DBC parsing)
@@ -92,19 +91,19 @@ into `main.rs` after picking the DBC approach.
 New module `src/known_track/`. Inputs: live `Sample` stream + a loaded
 `KnownTrackBundle` (signed cloud artifact). Outputs: alerts to `/known-track/alerts`. For demo: DTC reading via OBD Mode 03 + a handful of threshold rules. The model-bundle loader (`src/known_track/bundle.rs`) with atomic swap + previous-bundle rollback is the harder half — but it's the piece the architecture loop hinges on.
 
-### 5. ed25519 batch signing
+### 6. ed25519 batch signing
 Adds a `signature` field that's already reserved in `BatchEnvelope`. Pi
 generates keypair on first boot, persists privkey in `meta` table, registers
 pubkey with cloud on first contact (or out-of-band). Cloud verifies each
 batch's signature against the registered key. **Don't ship this until
 there's a real cloud to verify against** — premature otherwise.
 
-### 6. Pi↔phone pairing
+### 7. Pi↔phone pairing
 Deferred per user. Revisit when leaving demo phase. Likely flow: QR code
 shown via a quick CLI helper on the Pi (since Pi has no screen), scanned by
 Flutter, exchange a symmetric key cached on each side.
 
-### 7. App / binary OTA
+### 8. App / binary OTA
 Deferred. Use `git pull && cargo build && systemctl restart` on the Pi for
 now. Real OTA is ~1-2 weeks of plumbing (signed bundles, A/B partitions,
 boot-time rollback) and isn't needed for demo.
@@ -140,7 +139,21 @@ curl 'http://127.0.0.1:8088/backlog?since=0&limit=10'
 cd mobile
 flutter analyze                  # No issues
 flutter test                     # 1 widget test passes
+
+# Cloud (sibling repo)
+cd ../knight-rider-cloud
+python -m pytest -q              # 8 tests should pass
+python -m uvicorn knight_rider_cloud.main:app --reload   # → http://127.0.0.1:8000/docs
 ```
+
+## Known dev-env quirks
+
+- **Spaces in `C:\Users\Hp 830 G5\` break Python 3.9 `venv`** (ensurepip bug
+  with the venv stub spawning python.exe via unquoted paths). Workaround in
+  use: install cloud deps via `python -m pip install --user -e ".[dev]"` and
+  run with system Python. virtualenv has the same issue. The clean fix is
+  Python 3.11+, but we're sticking with 3.9 to avoid the upgrade.
+- **Git on Windows** logs CRLF warnings on every commit. Ignore them.
 
 ---
 
