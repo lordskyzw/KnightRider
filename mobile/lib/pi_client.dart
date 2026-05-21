@@ -7,12 +7,14 @@ import 'package:http/http.dart' as http;
 /// stay intact end-to-end.
 class BacklogRow {
   final int batchId;
+  final String deviceId;
   final DateTime createdAt;
   final int sampleCount;
   final String envelopeB64;
 
   BacklogRow({
     required this.batchId,
+    required this.deviceId,
     required this.createdAt,
     required this.sampleCount,
     required this.envelopeB64,
@@ -20,10 +22,20 @@ class BacklogRow {
 
   factory BacklogRow.fromJson(Map<String, dynamic> j) => BacklogRow(
         batchId: j['batch_id'] as int,
+        deviceId: j['device_id'] as String,
         createdAt: DateTime.parse(j['created_at'] as String),
         sampleCount: j['sample_count'] as int,
         envelopeB64: j['envelope_b64'] as String,
       );
+
+  /// Shape expected by the cloud's `POST /v1/batches`.
+  Map<String, dynamic> toUploadJson() => {
+        'batch_id': batchId,
+        'device_id': deviceId,
+        'created_at': createdAt.toIso8601String(),
+        'sample_count': sampleCount,
+        'envelope_b64': envelopeB64,
+      };
 }
 
 class PiHealth {

@@ -7,6 +7,7 @@ import 'config.dart';
 import 'pi_client.dart';
 import 'sample.dart';
 import 'settings_screen.dart';
+import 'uploader.dart';
 import 'ws_client.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -19,6 +20,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   WsClient? _ws;
   String _host = PiConfig.defaultHost;
+  String _cloudUrl = PiConfig.defaultCloudUrl;
   WsState _state = WsState.disconnected;
   final Map<String, Sample> _latest = {};
 
@@ -26,8 +28,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _db = BacklogDb();
   int _backlogTotal = 0;
   int _backlogPending = 0;
+  int _backlogUploaded = 0;
   bool _pulling = false;
   Timer? _pullTimer;
+
+  // Uploader state
+  Uploader? _uploader;
+  UploadTick? _lastTick;
+  StreamSubscription<UploadTick>? _tickSub;
 
   StreamSubscription<Sample>? _sampleSub;
   StreamSubscription<WsState>? _stateSub;
@@ -40,6 +48,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _boot() async {
     _host = await PiConfig.host();
+    _cloudUrl = await PiConfig.cloudUrl();
     _ws = WsClient(hostProvider: () => _host);
     _sampleSub = _ws!.stream.listen(_onSample);
     _stateSub = _ws!.stateStream.listen((s) {
@@ -49,6 +58,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     });
     _ws!.start();
+
+    _uploader = Uploader(db: _db, cloudUrlProvider: () => _cloudUrl);
+    _tickSub = _uploader!.ticks.listen((t) {
+      setState(() => _lastTick = t);
+      _refreshBacklogCounts();
+    });
+    _uploader!.start();
+
     await _refreshBacklogCounts();
     _pullTimer = Timer.periodic(const Duration(seconds: 30), (_) => _kickBacklogPull());
   }
@@ -60,10 +77,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _refreshBacklogCounts() async {
     final total = await _db.totalCount();
     final pending = await _db.pendingCount();
+    final uploaded = await _db.uploadedCount();
     if (!mounted) return;
     setState(() {
       _backlogTotal = total;
       _backlogPending = pending;
+      _backlogUploaded = uploaded;
     });
   }
 
@@ -98,7 +117,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
     if (updated == true) {
       _host = await PiConfig.host();
-      // Reconnect with new host.
+      _cloudUrl = await PiConfig.cloudUrl();
+      // Reconnect WS with new host.
       await _ws?.dispose();
       _ws = WsClient(hostProvider: () => _host);
       _sampleSub?.cancel();
@@ -109,6 +129,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (s == WsState.connected) _kickBacklogPull();
       });
       _ws!.start();
+      // Uploader reads _cloudUrl via the provider closure each tick — no
+      // restart needed.
     }
   }
 
@@ -116,8 +138,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void dispose() {
     _sampleSub?.cancel();
     _stateSub?.cancel();
+    _tickSub?.cancel();
     _pullTimer?.cancel();
     _ws?.dispose();
+    _uploader?.dispose();
     super.dispose();
   }
 
@@ -171,6 +195,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: _BacklogCard(
                     total: _backlogTotal,
                     pending: _backlogPending,
+                    uploaded: _backlogUploaded,
+                    lastTick: _lastTick,
                   ),
                 ),
               ],
@@ -261,10 +287,27 @@ class _Gauge extends StatelessWidget {
 class _BacklogCard extends StatelessWidget {
   final int total;
   final int pending;
-  const _BacklogCard({required this.total, required this.pending});
+  final int uploaded;
+  final UploadTick? lastTick;
+
+  const _BacklogCard({
+    required this.total,
+    required this.pending,
+    required this.uploaded,
+    required this.lastTick,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final tick = lastTick;
+    final (iconColor, statusLine) = switch (tick) {
+      null => (Colors.grey, 'idle'),
+      UploadTick(success: true, attempted: 0) => (Colors.blueGrey, 'caught up'),
+      UploadTick(success: true) => (Colors.green, 'last sync ${_ago(tick.at)}'),
+      UploadTick(error: final e?) => (Colors.red, _shortError(e)),
+      _ => (Colors.grey, 'idle'),
+    };
+
     return Card(
       elevation: 2,
       child: Padding(
@@ -272,14 +315,37 @@ class _BacklogCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('BACKLOG',
-                style: TextStyle(fontSize: 12, letterSpacing: 1.5)),
+            Row(
+              children: [
+                const Text('BACKLOG',
+                    style: TextStyle(fontSize: 12, letterSpacing: 1.5)),
+                const Spacer(),
+                Icon(Icons.cloud_upload, size: 14, color: iconColor),
+              ],
+            ),
             const SizedBox(height: 4),
-            Text('$total', style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),
-            Text('$pending pending', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            Text('$uploaded / $total',
+                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+            Text('$pending pending',
+                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            Text(statusLine,
+                style: TextStyle(fontSize: 10, color: iconColor),
+                overflow: TextOverflow.ellipsis),
           ],
         ),
       ),
     );
+  }
+
+  String _ago(DateTime ts) {
+    final s = DateTime.now().difference(ts).inSeconds;
+    if (s < 60) return '${s}s ago';
+    final m = s ~/ 60;
+    return '${m}m ago';
+  }
+
+  String _shortError(String e) {
+    final t = e.length > 32 ? '${e.substring(0, 32)}…' : e;
+    return 'err: $t';
   }
 }

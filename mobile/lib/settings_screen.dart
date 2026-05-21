@@ -10,30 +10,39 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _ctrl = TextEditingController();
+  final _hostCtrl = TextEditingController();
+  final _cloudCtrl = TextEditingController();
   bool _loaded = false;
 
   @override
   void initState() {
     super.initState();
-    PiConfig.host().then((h) {
-      setState(() {
-        _ctrl.text = h;
-        _loaded = true;
-      });
+    _load();
+  }
+
+  Future<void> _load() async {
+    final host = await PiConfig.host();
+    final cloud = await PiConfig.cloudUrl();
+    setState(() {
+      _hostCtrl.text = host;
+      _cloudCtrl.text = cloud;
+      _loaded = true;
     });
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _hostCtrl.dispose();
+    _cloudCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
-    final value = _ctrl.text.trim();
-    if (value.isEmpty) return;
-    await PiConfig.setHost(value);
+    final host = _hostCtrl.text.trim();
+    final cloud = _cloudCtrl.text.trim();
+    if (host.isEmpty || cloud.isEmpty) return;
+    await PiConfig.setHost(host);
+    await PiConfig.setCloudUrl(cloud);
     if (!mounted) return;
     Navigator.of(context).pop(true);
   }
@@ -53,10 +62,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   TextField(
-                    controller: _ctrl,
+                    controller: _hostCtrl,
                     decoration: const InputDecoration(
                       border: OutlineInputBorder(),
                       hintText: 'raspberrypi.local:8080',
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text('Cloud base URL',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Where the courier uploads batches when off-LAN.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _cloudCtrl,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      hintText: 'https://knight-rider-cloud-production.up.railway.app',
                     ),
                   ),
                   const SizedBox(height: 16),
