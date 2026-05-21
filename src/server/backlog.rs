@@ -3,11 +3,13 @@
 //! Returns NDJSON (newline-delimited JSON), one row per batch:
 //!
 //! ```json
-//! {"batch_id": 42, "created_at": "...", "sample_count": 17,
-//!  "envelope_b64": "..."}
+//! {"batch_id": 42, "device_id": "...", "created_at": "...",
+//!  "sample_count": 17, "envelope_b64": "..."}
 //! ```
 //!
-//! The `envelope_b64` field is the base64-encoded CBOR-encoded
+//! `device_id` is pulled from the envelope itself (not the store) so the row
+//! is fully self-contained for the courier's POST to `/v1/batches` on the
+//! cloud side. The `envelope_b64` field is the base64-encoded CBOR-encoded
 //! [`BatchEnvelope`] — the courier stores it verbatim and forwards it to the
 //! cloud unmodified, so the Pi's (future) signature stays intact end-to-end.
 
@@ -30,6 +32,7 @@ pub struct BacklogQuery {
 #[derive(Debug, Serialize)]
 struct BacklogRow {
     batch_id: u64,
+    device_id: String,
     created_at: String,
     sample_count: u32,
     envelope_b64: String,
@@ -71,6 +74,7 @@ pub async fn handler(State(state): State<AppState>, Query(q): Query<BacklogQuery
         };
         let row = BacklogRow {
             batch_id: env.batch_id,
+            device_id: env.device_id.to_string(),
             created_at: env.created_at.to_rfc3339(),
             sample_count: env.sample_count,
             envelope_b64: B64.encode(&encoded),
