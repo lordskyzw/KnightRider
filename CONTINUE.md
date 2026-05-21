@@ -58,12 +58,18 @@ This repo (`KnightRider`):
 | `12edb30`| axum server on `0.0.0.0:8080`: `/health`, `/ws/live`, `/backlog?since=N` (NDJSON, envelope_b64 verbatim), `/known-track/alerts` + `/inbox` stubs. |
 | `73d2b6b`| `main.rs` rewired to tokio service: CAN → broadcast → buffer-writer + server. Race-free subscribe order. ctrl-c flushes writer. |
 | `cc7dbdb`| Flutter mobile under `mobile/`: dark dashboard (RPM big + 5 small gauges + backlog counts + status chip), `WsClient` w/ 2s auto-reconnect, sqflite backlog store, settings screen. |
+| `5c4653e`| Pi `/backlog` rows now include `device_id` (pulled from envelope) — cloud's `(device_id, batch_id)` idempotency key needs it. |
+| `1ef4e54`| Flutter courier uploader. `BacklogDb` v2 with `device_id` column. `Uploader` (10s tick, 100-row chunks, no connectivity detection). `PiConfig.cloudUrl` + Settings field. Dashboard backlog card shows `uploaded/total` + colored cloud-upload heartbeat. |
 
 Sibling repo `../knight-rider-cloud`:
 
 | Commit   | What                                                        |
 |----------|-------------------------------------------------------------|
-| `e9ffa16`| Cloud ingest API. FastAPI + SQLModel. `POST /v1/batches` accepts the Pi's `/backlog` JSON/NDJSON rows, idempotent on `(device_id, batch_id)`, stores raw envelope bytes verbatim. SQLite local + Postgres on Railway via `DATABASE_URL`. railway.toml + Procfile + README with deploy steps. 8 pytest tests pass. **Not yet deployed to Railway** — needs `railway login && railway init && railway add --plugin postgresql && railway up`. |
+| `e9ffa16`| Cloud ingest API. FastAPI + SQLModel. `POST /v1/batches`, idempotent on `(device_id, batch_id)`. SQLite local + Postgres on Railway. 8 pytest tests pass. |
+| `e0907c2`| Flatten src/ layout + add `requirements.txt` for nixpacks (the src-layout + pyproject-only path broke Railway's build because nixpacks runs `pip install .` before copying app code). |
+| `e6f47..`| Idempotency fix: use `.returning()` instead of `result.rowcount` (psycopg3 + ON CONFLICT DO NOTHING didn't report rowcount reliably; every Postgres POST was returning `duplicates:N`). Set `received_at` explicitly. |
+
+**Deployed and live at `https://knight-rider-cloud-production.up.railway.app`** under The Janitors workspace. `POST /v1/batches` verified working end-to-end (first POST `{accepted:1,duplicates:0}`, replay `{accepted:0,duplicates:1}`).
 
 Test coverage: 8 Rust unit tests + 1 Flutter widget test + 8 cloud pytest tests, all passing.
 
@@ -71,13 +77,11 @@ Test coverage: 8 Rust unit tests + 1 Flutter widget test + 8 cloud pytest tests,
 
 ## Up next (priority order)
 
-### 1. Deploy cloud + Flutter courier upload path
-Cloud exists locally but not on Railway. Once deployed, wire the Flutter app
-to POST `BacklogDb` rows to `<railway-url>/v1/batches`.
-
-Two halves:
-- **Deploy**: `cd ../knight-rider-cloud && railway login && railway init && railway add --plugin postgresql && railway up`. Verify `<deploy>.up.railway.app/health` returns 200. Save the URL.
-- **Wire courier**: new `mobile/lib/uploader.dart`. Background timer (or `connectivity_plus` listener) that, when off-LAN AND has internet, reads un-uploaded rows from `BacklogDb` and POSTs them to the cloud URL in chunks of ~100 rows. On 200 response, calls `BacklogDb.markUploaded(batchId, now)`. Cloud URL stored in `PiConfig`. Cloud's idempotency makes retries safe.
+### 1. End-to-end smoke against real CAN
+Code is complete on all three sides. What's left is to actually run the
+loop on real hardware (or vcan0 on the Pi) and confirm batches flow Pi →
+phone → cloud Postgres. Steps in **Quick verification** below. If
+something's broken, this is where to find it.
 
 ### 2. Discovery worker skeleton (cloud-side)
 In `knight-rider-cloud`. New `src/knight_rider_cloud/worker/`. Reads recent
@@ -148,10 +152,34 @@ cd mobile
 flutter analyze                  # No issues
 flutter test                     # 1 widget test passes
 
-# Cloud (sibling repo)
+# Cloud (sibling repo, local)
 cd ../knight-rider-cloud
 python -m pytest -q              # 8 tests should pass
-python -m uvicorn knight_rider_cloud.main:app --reload   # → http://127.0.0.1:8000/docs
+
+# Cloud (Railway, live)
+curl https://knight-rider-cloud-production.up.railway.app/health
+# {"status":"ok","version":"0.1.0"}
+```
+
+### End-to-end smoke (Pi → phone → cloud)
+
+```bash
+# On Pi
+sudo ip link set can0 up type can bitrate 500000
+cargo build --release --bin knight-rider
+sudo ./target/release/knight-rider --interface can0 \
+    --buffer /var/lib/knight-rider/buffer.sqlite
+
+# In Flutter:
+#   Settings → Pi host:port    = <pi-ip>:8080
+#   Settings → Cloud base URL  = https://knight-rider-cloud-production.up.railway.app
+#   (Cloud URL default already points there, but verify after install.)
+
+# Verify on cloud — query Postgres:
+railway connect Postgres    # opens psql
+\c railway
+SELECT device_id, count(*), max(received_at)
+  FROM batches GROUP BY device_id;
 ```
 
 ## Known dev-env quirks
@@ -162,6 +190,14 @@ python -m uvicorn knight_rider_cloud.main:app --reload   # → http://127.0.0.1:
   run with system Python. virtualenv has the same issue. The clean fix is
   Python 3.11+, but we're sticking with 3.9 to avoid the upgrade.
 - **Git on Windows** logs CRLF warnings on every commit. Ignore them.
+- **Railway CLI `up` + Windows `.gitignore`** has a CRLF-in-patterns bug
+  that excludes too much (e.g. `src/`). Always deploy with `railway up
+  --no-gitignore --service knight-rider-cloud --ci` from the cloud repo.
+- **Railway CLI is interactive-by-default** for `add`/`init` — pass `--name`
+  and use `--service` with `up`. `add --database postgres` still hangs on a
+  trailing prompt; add Postgres from the dashboard if the CLI hangs.
+- **DATABASE_URL reference** is set via
+  `railway variables --service knight-rider-cloud --set 'DATABASE_URL=${{Postgres.DATABASE_URL}}' --skip-deploys`.
 
 ---
 
