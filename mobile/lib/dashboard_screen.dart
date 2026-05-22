@@ -22,6 +22,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _host = PiConfig.defaultHost;
   String _cloudUrl = PiConfig.defaultCloudUrl;
   WsState _state = WsState.disconnected;
+  String? _wsError;
+  String? _wsUri;
+  String? _backlogPullError;
   final Map<String, Sample> _latest = {};
 
   // Backlog state
@@ -52,7 +55,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _ws = WsClient(hostProvider: () => _host);
     _sampleSub = _ws!.stream.listen(_onSample);
     _stateSub = _ws!.stateStream.listen((s) {
-      setState(() => _state = s);
+      setState(() {
+        _state = s;
+        _wsError = (s == WsState.connected) ? null : _ws?.lastError;
+        _wsUri = _ws?.lastTriedUri;
+      });
       if (s == WsState.connected) {
         _kickBacklogPull();
       }
@@ -103,8 +110,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } finally {
         client.close();
       }
-    } catch (_) {
-      // Will retry on next connect / timer tick.
+    } catch (e) {
+      if (mounted) setState(() => _backlogPullError = e.toString());
     } finally {
       _pulling = false;
       await _refreshBacklogCounts();
@@ -165,11 +172,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            _Gauge(label: 'RPM', sample: rpm, big: true),
+      body: Column(
+        children: [
+          if (_state != WsState.connected && _wsError != null)
+            _DiagBanner(
+              label: 'WS',
+              uri: _wsUri,
+              detail: _wsError!,
+              color: Colors.red.shade900,
+            ),
+          if (_backlogPullError != null && _state == WsState.connected)
+            _DiagBanner(
+              label: 'BACKLOG',
+              uri: 'http://$_host/backlog',
+              detail: _backlogPullError!,
+              color: Colors.orange.shade900,
+            ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  _Gauge(label: 'RPM', sample: rpm, big: true),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -187,22 +211,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _Gauge(label: 'Fuel', sample: fuel)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _BacklogCard(
-                    total: _backlogTotal,
-                    pending: _backlogPending,
-                    uploaded: _backlogUploaded,
-                    lastTick: _lastTick,
+                  Row(
+                    children: [
+                      Expanded(child: _Gauge(label: 'Fuel', sample: fuel)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _BacklogCard(
+                          total: _backlogTotal,
+                          pending: _backlogPending,
+                          uploaded: _backlogUploaded,
+                          lastTick: _lastTick,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiagBanner extends StatelessWidget {
+  final String label;
+  final String? uri;
+  final String detail;
+  final Color color;
+
+  const _DiagBanner({
+    required this.label,
+    required this.uri,
+    required this.detail,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: color,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$label  ${uri ?? ''}',
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: Colors.white70,
+              letterSpacing: 1.2,
+            ),
+          ),
+          Text(
+            detail,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11, color: Colors.white),
+          ),
+        ],
       ),
     );
   }

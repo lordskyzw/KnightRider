@@ -7,8 +7,9 @@ import 'sample.dart';
 
 enum WsState { connecting, connected, disconnected }
 
-/// WebSocket client with auto-reconnect. Exposes a [stream] of [Sample]s and
-/// a [stateStream] of connection-status changes.
+/// WebSocket client with auto-reconnect. Exposes a [stream] of [Sample]s, a
+/// [stateStream] of connection-status changes, and [lastError] for the most
+/// recent failure reason (cleared on successful CONNECTED transition).
 class WsClient {
   final String Function() hostProvider;
   final Duration reconnectDelay;
@@ -21,6 +22,8 @@ class WsClient {
   final _samples = StreamController<Sample>.broadcast();
   final _state = StreamController<WsState>.broadcast();
   WsState _currentState = WsState.disconnected;
+  String? _lastError;
+  String? _lastTriedUri;
 
   WsClient({
     required this.hostProvider,
@@ -30,6 +33,13 @@ class WsClient {
   Stream<Sample> get stream => _samples.stream;
   Stream<WsState> get stateStream => _state.stream;
   WsState get state => _currentState;
+
+  /// Most recent connection-failure reason. Cleared on a successful sample
+  /// from the live stream (proves the channel is genuinely up).
+  String? get lastError => _lastError;
+
+  /// URI from the most recent connect attempt. Handy for UI debugging.
+  String? get lastTriedUri => _lastTriedUri;
 
   void start() {
     _disposed = false;
@@ -47,16 +57,21 @@ class WsClient {
     _setState(WsState.connecting);
     final host = hostProvider();
     final uri = Uri.parse('ws://$host/ws/live');
+    _lastTriedUri = uri.toString();
     try {
       _channel = WebSocketChannel.connect(uri);
     } catch (e) {
+      _lastError = 'connect threw: ${e.toString()}';
       _scheduleReconnect();
       return;
     }
+    // Optimistic — actual handshake happens async; if it fails, onError fires.
     _setState(WsState.connected);
 
     _sub = _channel!.stream.listen(
       (data) {
+        // First successful frame proves the channel is genuinely up.
+        _lastError = null;
         try {
           final json = jsonDecode(data as String) as Map<String, dynamic>;
           _samples.add(Sample.fromJson(json));
@@ -64,8 +79,16 @@ class WsClient {
           // Drop malformed frames silently — the canonical store has them.
         }
       },
-      onError: (_) => _scheduleReconnect(),
-      onDone: _scheduleReconnect,
+      onError: (e) {
+        _lastError = 'stream error: ${e.toString()}';
+        _scheduleReconnect();
+      },
+      onDone: () {
+        // onDone with no prior error often means the server closed the
+        // connection — record it so OFFLINE has a reason on screen.
+        _lastError ??= 'channel closed';
+        _scheduleReconnect();
+      },
       cancelOnError: true,
     );
   }
