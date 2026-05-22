@@ -52,19 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _boot() async {
     _host = await PiConfig.host();
     _cloudUrl = await PiConfig.cloudUrl();
-    _ws = WsClient(hostProvider: () => _host);
-    _sampleSub = _ws!.stream.listen(_onSample);
-    _stateSub = _ws!.stateStream.listen((s) {
-      setState(() {
-        _state = s;
-        _wsError = (s == WsState.connected) ? null : _ws?.lastError;
-        _wsUri = _ws?.lastTriedUri;
-      });
-      if (s == WsState.connected) {
-        _kickBacklogPull();
-      }
-    });
-    _ws!.start();
+    _attachWs();
 
     _uploader = Uploader(db: _db, cloudUrlProvider: () => _cloudUrl);
     _tickSub = _uploader!.ticks.listen((t) {
@@ -125,20 +113,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (updated == true) {
       _host = await PiConfig.host();
       _cloudUrl = await PiConfig.cloudUrl();
-      // Reconnect WS with new host.
+      // Clear stale diagnostics from the previous host before reconnecting.
+      setState(() {
+        _wsError = null;
+        _wsUri = null;
+        _backlogPullError = null;
+      });
       await _ws?.dispose();
-      _ws = WsClient(hostProvider: () => _host);
       _sampleSub?.cancel();
       _stateSub?.cancel();
-      _sampleSub = _ws!.stream.listen(_onSample);
-      _stateSub = _ws!.stateStream.listen((s) {
-        setState(() => _state = s);
-        if (s == WsState.connected) _kickBacklogPull();
-      });
-      _ws!.start();
+      _attachWs();
       // Uploader reads _cloudUrl via the provider closure each tick — no
       // restart needed.
     }
+  }
+
+  /// Creates a fresh WsClient + listeners. Used by both _boot and
+  /// _openSettings so the diagnostic fields (_wsError, _wsUri) get updated
+  /// consistently on every state change.
+  void _attachWs() {
+    _ws = WsClient(hostProvider: () => _host);
+    _sampleSub = _ws!.stream.listen(_onSample);
+    _stateSub = _ws!.stateStream.listen((s) {
+      setState(() {
+        _state = s;
+        _wsError = (s == WsState.connected) ? null : _ws?.lastError;
+        _wsUri = _ws?.lastTriedUri;
+      });
+      if (s == WsState.connected) {
+        _kickBacklogPull();
+      }
+    });
+    _ws!.start();
   }
 
   @override
