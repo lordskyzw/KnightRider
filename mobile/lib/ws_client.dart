@@ -55,7 +55,7 @@ class WsClient {
   void _connect() {
     if (_disposed) return;
     _setState(WsState.connecting);
-    final host = hostProvider();
+    final host = _normalizeHost(hostProvider());
     final uri = Uri.parse('ws://$host/ws/live');
     _lastTriedUri = uri.toString();
     try {
@@ -102,6 +102,23 @@ class WsClient {
     if (_disposed) return;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(reconnectDelay, _connect);
+  }
+
+  /// Tolerates common user mistakes in the Settings field: leading
+  /// http://, https://, ws://, wss:// schemes, trailing slashes, and
+  /// whitespace.
+  static String _normalizeHost(String raw) {
+    var h = raw.trim();
+    for (final scheme in const ['https://', 'http://', 'wss://', 'ws://']) {
+      if (h.toLowerCase().startsWith(scheme)) {
+        h = h.substring(scheme.length);
+        break;
+      }
+    }
+    while (h.endsWith('/')) {
+      h = h.substring(0, h.length - 1);
+    }
+    return h;
   }
 
   Future<void> dispose() async {

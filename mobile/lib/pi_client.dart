@@ -60,7 +60,25 @@ class PiClient {
   final String host;
   final http.Client _http;
 
-  PiClient(this.host, {http.Client? client}) : _http = client ?? http.Client();
+  PiClient(String host, {http.Client? client})
+      : host = _normalizeHost(host),
+        _http = client ?? http.Client();
+
+  /// Strips http://, https://, ws://, wss:// prefixes, trailing slashes, and
+  /// whitespace from the host string.
+  static String _normalizeHost(String raw) {
+    var h = raw.trim();
+    for (final scheme in const ['https://', 'http://', 'wss://', 'ws://']) {
+      if (h.toLowerCase().startsWith(scheme)) {
+        h = h.substring(scheme.length);
+        break;
+      }
+    }
+    while (h.endsWith('/')) {
+      h = h.substring(0, h.length - 1);
+    }
+    return h;
+  }
 
   Uri _u(String path, [Map<String, String>? q]) =>
       Uri.parse('http://$host$path').replace(queryParameters: q);
