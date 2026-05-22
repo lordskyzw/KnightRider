@@ -98,6 +98,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } finally {
         client.close();
       }
+      // Successful pull — clear any stale error from a previous failure.
+      if (mounted) setState(() => _backlogPullError = null);
     } catch (e) {
       if (mounted) setState(() => _backlogPullError = e.toString());
     } finally {
@@ -133,12 +135,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// consistently on every state change.
   void _attachWs() {
     _ws = WsClient(hostProvider: () => _host);
-    _sampleSub = _ws!.stream.listen(_onSample);
+    _sampleSub = _ws!.stream.listen((sample) {
+      // First sample after a (re)connect proves the channel is genuinely
+      // up — clear any lingering banner from the previous failure.
+      if (_wsError != null && mounted) {
+        setState(() => _wsError = null);
+      }
+      _onSample(sample);
+    });
     _stateSub = _ws!.stateStream.listen((s) {
       setState(() {
         _state = s;
-        _wsError = (s == WsState.connected) ? null : _ws?.lastError;
         _wsUri = _ws?.lastTriedUri;
+        // Only surface an error when fully disconnected — during CONNECTING
+        // the previous error is stale and would flash on every reconnect.
+        if (s == WsState.connected || s == WsState.connecting) {
+          _wsError = null;
+        } else {
+          _wsError = _ws?.lastError;
+        }
       });
       if (s == WsState.connected) {
         _kickBacklogPull();

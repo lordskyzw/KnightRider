@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for any HTTP/WS traffic. Flutter only adds this to debug
+         and profile manifests by default, which means release builds have
+         zero network access until it's added here too. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application
         android:label="knight_rider_mobile"
         android:name="${applicationName}"
