@@ -69,7 +69,27 @@ Sibling repo `../knight-rider-cloud`:
 | `e0907c2`| Flatten src/ layout + add `requirements.txt` for nixpacks (the src-layout + pyproject-only path broke Railway's build because nixpacks runs `pip install .` before copying app code). |
 | `e6f47..`| Idempotency fix: use `.returning()` instead of `result.rowcount` (psycopg3 + ON CONFLICT DO NOTHING didn't report rowcount reliably; every Postgres POST was returning `duplicates:N`). Set `received_at` explicitly. |
 
-**Deployed and live at `https://knight-rider-cloud-production.up.railway.app`** under The Janitors workspace. `POST /v1/batches` verified working end-to-end (first POST `{accepted:1,duplicates:0}`, replay `{accepted:0,duplicates:1}`).
+**Deployed and live at `https://knight-rider-cloud-production.up.railway.app`** under The Janitors workspace. `POST /v1/batches` verified working end-to-end.
+
+Sibling repo `../ra-typed-gp-showcase` (NEW — lecturer-facing demo):
+
+Streamlit web app showcasing the discovery-track research. **Live at
+`https://ra-typed-gp-showcase-production.up.railway.app`** under The Janitors
+workspace. Not yet pushed to GitHub — direct Railway upload only.
+
+Twelve sections: hero · question · framework · journey (v1→v5) · experiment
+explorer (all 9 published experiments) · sensitivity-stability paradox
+(interactive) · cross-domain summary · **seven live-evolve sections** that run
+the actual GP from scratch in-browser (pendulum, OBD/engine, CWRU bearings,
+IMS multi-bearing, EngineFaultDB, NASA C-MAPSS turbofan, MIT-BIH ECG) ·
+online-discovery (GP at 3/8/15/25 trial counts) · KnightRider system context ·
+reproducibility.
+
+Architecture: shared `gp_core.GpEngine` parameterised by per-domain configs in
+`domains/`. Each `domains/*.py` ports the TYPES/TERMINALS/CONSTS/OPS from the
+matching `KnightRider/real_world/run_*.py` runner plus a synthetic signal
+generator sized for browser-fast runs (pop 30 × gen 12, ~30s each).
+Generic `sections/live_evolve_domain.py` UI consumes any such domain module.
 
 Test coverage: 8 Rust unit tests + 1 Flutter widget test + 8 cloud pytest tests, all passing.
 
@@ -77,11 +97,27 @@ Test coverage: 8 Rust unit tests + 1 Flutter widget test + 8 cloud pytest tests,
 
 ## Up next (priority order)
 
-### 1. End-to-end smoke against real CAN
+### 1. End-to-end smoke against real CAN (where we left off)
 Code is complete on all three sides. What's left is to actually run the
-loop on real hardware (or vcan0 on the Pi) and confirm batches flow Pi →
-phone → cloud Postgres. Steps in **Quick verification** below. If
-something's broken, this is where to find it.
+loop on real hardware (vcan0 on the Pi for first-light, then real car) and
+confirm batches flow Pi → phone → cloud Postgres. Steps in **Quick
+verification** below. If something's broken, this is where to find it.
+
+After the smoke passes, the four most useful follow-ups in order:
+
+  a. **Push `ra-typed-gp-showcase` to GitHub** (currently Railway-only). Same
+     drill as the other two repos — create empty github.com/lordskyzw/<name>,
+     `git remote add origin ...`, `git push -u origin main`.
+  b. **Migrate showcase pendulum + OBD live-evolves onto `gp_core.GpEngine`**
+     for consistency. Five of seven domains already use it; pendulum and OBD
+     still use the module-level `gp_engine.py` with TERMINALS monkeypatching.
+     Pure cleanup, no behaviour gain.
+  c. **Real-artifact pipeline**: add `--export-json` to each `real_world/run_*.py`
+     so the showcase's "Experiment explorer" reads actual run outputs instead
+     of hand-curated FINDINGS.md tables.
+  d. **Wire the showcase's KnightRider section into live cloud data** once
+     the Pi has accumulated traces — show real discovered features against
+     real OBD samples, not synthetic.
 
 ### 2. Discovery worker skeleton (cloud-side)
 In `knight-rider-cloud`. New `src/knight_rider_cloud/worker/`. Reads recent
