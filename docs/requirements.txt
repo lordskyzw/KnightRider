@@ -1,0 +1,2 @@
+# No third-party deps — server uses only the Python stdlib.
+# File exists so Railway's nixpacks detects Python and provisions a runtime.
