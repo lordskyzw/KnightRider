@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KnightRider</title>
+    <title>KnightRider — Commoditizing Engine Diagnostics</title>
     <meta name="description"
-        content="KnightRider: A hand-drawn journey into engine intelligence. From research to engineering, one doodle at a time.">
+        content="KnightRider: a Rust-on-Pi diagnostic computer + Flutter mobile dashboard + cloud-side unsupervised feature discovery. Built in Zimbabwe to tear down the auto-diagnostic walled garden.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -20,15 +20,15 @@
     <meta property="og:image:alt" content="Sketch of KnightRider interior featuring control Pi and Mandrand design.">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:title" content="KnightRider">
-    <meta property="og:description" content="Commoditizing Engine Diagnostics.">
+    <meta property="og:title" content="KnightRider — Commoditizing Engine Diagnostics">
+    <meta property="og:description" content="A Rust diagnostic computer for any car, with a research-grade GP discovering new fault signatures cloud-side.">
     <meta property="og:url" content="https://lordskyzw.github.io/KnightRider/">
     <meta property="og:type" content="website">
-    
+
     <!-- Twitter Cards -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="KnightRider">
-    <meta name="twitter:description" content="Commoditizing Engine Diagnostics.">
+    <meta name="twitter:title" content="KnightRider — Commoditizing Engine Diagnostics">
+    <meta name="twitter:description" content="A Rust diagnostic computer for any car, with a research-grade GP discovering new fault signatures cloud-side.">
     <meta name="twitter:image" content="https://lordskyzw.github.io/KnightRider/assets/hero_sketch.png?v=4">
 </head>
 
@@ -43,6 +43,7 @@
             </div>
             <div class="nav-links">
                 <a href="#vision" class="doodle-link">The Vision</a>
+                <a href="#research" class="doodle-link">The Research</a>
                 <a href="#timeline" class="doodle-link">The Road</a>
                 <a href="#lab" class="doodle-link">The Lab</a>
             </div>
@@ -72,13 +73,13 @@
         <div class="founder-card">
             <div class="profile-sketch">
                 <span class="role-badge">Director</span>
-                <h3>Tarmica Chiwara</h3>
+                <h3>Tarimica Chiwara</h3>
                 <p>Computer Engineer</p>
             </div>
             <div class="project-meta">
-                <div class="meta-item"><span>Status:</span> <strong>Genesis Phase</strong></div>
-                <div class="meta-item"><span>Engine:</span> <strong>Rust 🦀</strong></div>
-                <div class="meta-item"><span>Timeline:</span> <strong>~12 Months</strong></div>
+                <div class="meta-item"><span>Status:</span> <strong>Field Testing</strong></div>
+                <div class="meta-item"><span>Stack:</span> <strong>Rust 🦀 + Flutter + Python</strong></div>
+                <div class="meta-item"><span>Validated on:</span> <strong>9 experiments · 4 domains</strong></div>
             </div>
         </div>
     </header>
@@ -96,10 +97,12 @@
                             local shops are locked out of their own engine's intelligence.</p>
                         <p>This is so much that diagnostics still exists as a separate layer in the industry.</p><br>
                         <p><i>This is just an information problem.</i></p><br>
-                        <p><strong>KnightRider</strong> is the compressed
-                            embodiment of that layer. Built in
-                            <strong>Rust</strong> for reliability, we are engineering a local solution to bridge this
-                            technological gap.
+                        <p><strong>KnightRider</strong> is the compressed embodiment of that layer. A
+                            <strong>Rust</strong> service on a Raspberry Pi reads OBD-II via a CAN HAT. A
+                            <strong>Flutter</strong> mobile dashboard shows live engine telemetry on your phone the
+                            moment you connect to the Pi's WiFi. When the phone is back online, it carries the trip's
+                            data to a <strong>cloud service</strong> that runs a research-grade genetic program against
+                            it — discovering new fault signatures specific to each car as more miles accumulate.
                         </p>
 
                         <!-- Concept Gallery -->
@@ -121,11 +124,62 @@
                     </div>
                     <div class="v-sketch">
                         <div class="doodle-box">
-                            <h4>Design Goals</h4>
+                            <h4>What's Shipped</h4>
                             <ul>
-                                <li>Vast Vehicle Database.</li>
-                                <li>Accurate ECU Diagnostics.</li>
-                                <li>Easy to Use.</li>
+                                <li>✓ Rust Pi service (OBD-II + LAN server)</li>
+                                <li>✓ Flutter mobile app (Android)</li>
+                                <li>✓ Cloud ingest (FastAPI on Railway)</li>
+                                <li>✓ End-to-end Pi → phone → cloud</li>
+                                <li>◐ Live in-car testing (now)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="research" class="vision-section container">
+            <div class="sketch-box">
+                <div class="box-title">
+                    <span class="tape"></span>
+                    <h2>The Research</h2>
+                </div>
+                <div class="vision-content">
+                    <div class="v-text">
+                        <p>The product is the front half. The back half is a research program on
+                            <strong>unsupervised fault detection</strong> via reliability-aware typed genetic
+                            programming. Validated across nine experiments in four physical domains — mechanics,
+                            vibration, automotive, aerospace, cardiology — with two outright wins on NASA benchmarks.
+                        </p>
+                        <ul>
+                            <li><strong>+19.2 hours</strong> earlier bearing-failure detection than baseline on the
+                                NASA/IMS run-to-failure dataset.</li>
+                            <li><strong>+2.2% earlier</strong> turbofan degradation detection across all 100 engines
+                                on NASA C-MAPSS FD001 — with a novel finding: coolant bleed flows act as the leading
+                                indicator of HPC degradation.</li>
+                            <li><strong>6 of 6 physics terms</strong> rediscovered from a damped pendulum from raw
+                                signals alone, with zero fault labels.</li>
+                            <li>The <em>sensitivity-stability paradox</em> — a publishable theorem about when
+                                rank-correlation tests fail because the framework worked.</li>
+                        </ul>
+                        <p>Same algorithm runs on the cloud side of KnightRider, looking at each car's accumulating
+                            OBD-II traces and proposing new fault signatures for the Pi to deploy.</p>
+                        <div class="note-actions" style="margin-top: 1.4rem;">
+                            <a href="https://ra-typed-gp-showcase-production.up.railway.app"
+                               class="btn-doodle" target="_blank" rel="noopener">Interactive showcase →</a>
+                            <a href="https://github.com/lordskyzw/KnightRider/blob/main/discovery_track/FINDINGS.md"
+                               class="btn-doodle" target="_blank" rel="noopener">Findings doc</a>
+                        </div>
+                    </div>
+                    <div class="v-sketch">
+                        <div class="doodle-box">
+                            <h4>Headline Numbers</h4>
+                            <ul>
+                                <li>9 experiments</li>
+                                <li>4 physical domains</li>
+                                <li>5/6 real-world wins or ties</li>
+                                <li>2 NASA-benchmark wins</li>
+                                <li>arXiv preprint drafted</li>
                             </ul>
                         </div>
                     </div>
@@ -135,15 +189,15 @@
 
         <section id="timeline" class="roadmap-section container">
             <div class="section-header">
-                <h2>The Road Ahead</h2>
-                <p>A roadmap sketched in the heat of research.</p>
+                <h2>The Road So Far</h2>
+                <p>From scaffolding to in-car testing.</p>
             </div>
 
             <div class="roadmap-container">
                 <!-- Mobile Book Controls -->
                 <div class="book-controls mobile-only">
                     <button class="btn-flip prev" id="prevPage">← Prev</button>
-                    <span class="page-indicator">Spread <span id="currentPage">1</span> / 2</span>
+                    <span class="page-indicator">Spread <span id="currentPage">1</span> / 3</span>
                     <button class="btn-flip next" id="nextPage">Next →</button>
                 </div>
 
@@ -169,7 +223,8 @@
                             <div class="node-marker"></div>
                             <div class="node-popup">
                                 <h4>The Scaffolding</h4>
-                                <p>System core built in Rust. CAN bus foundations ready.</p>
+                                <p>Rust core. CAN bus + ISO-TP + OBD-II layers. SocketCAN bindings, ring-buffer
+                                    logging.</p>
                             </div>
                         </div>
 
@@ -178,34 +233,39 @@
                             <div class="node-marker"></div>
                             <div class="node-popup">
                                 <h4>Hardware Sourced</h4>
-                                <p class="writing-text">Secured the Raspberry Pi 5 (project brain) & Waveshare CAN HAT (OBD-II input).</p>
+                                <p>Raspberry Pi 5 (4GB) + Waveshare 2-CH CAN HAT. Bench-verified with vcan and a real
+                                    OBD-II port.</p>
                             </div>
                         </div>
 
                         <!-- Node 3 -->
-                        <div class="node active current" style="left: 50%; top: 50%;">
+                        <div class="node active done" style="left: 50%; top: 50%;">
                             <div class="node-marker"></div>
                             <div class="node-popup">
-                                <h4>Upstream Setup</h4>
-                                <p>Waiting ~2 weeks for the CAN HAT. Carefully setting up upstream data acquisition for unknown data formats.</p>
+                                <h4>Three-Tier System</h4>
+                                <p>Pi service (Rust + tokio + axum) talks to a Flutter app over LAN. App carries
+                                    trip batches to FastAPI cloud on Railway. End-to-end, idempotent, durable.</p>
                             </div>
                         </div>
 
                         <!-- Node 4 -->
-                        <div class="node" style="left: 75%; top: 12.5%;">
+                        <div class="node active done" style="left: 75%; top: 12.5%;">
                             <div class="node-marker"></div>
                             <div class="node-popup">
-                                <h4>The Lab</h4>
-                                <p>Experimental phase @ Toyo-Tech with Carti & team.</p>
+                                <h4>Research Validated</h4>
+                                <p>9 typed-GP experiments shipped. 5/6 real-world wins or ties. NASA IMS +19.2h,
+                                    NASA C-MAPSS +2.2% earlier across 100/100 engines. Paper drafted. Interactive
+                                    showcase live.</p>
                             </div>
                         </div>
 
                         <!-- Node 5 -->
-                        <div class="node" style="left: 100%; top: 50%;">
+                        <div class="node active current" style="left: 100%; top: 50%;">
                             <div class="node-marker"></div>
                             <div class="node-popup">
-                                <h4>Hardware V1</h4>
-                                <p>First field-ready units and live CAN data analysis.</p>
+                                <h4>Field Testing</h4>
+                                <p class="writing-text">In-car CAN read, phone gets live dashboard on the Pi's WiFi,
+                                    cloud receives trip batches. Iterating on real OBD signatures with the team.</p>
                             </div>
                         </div>
                     </div>
@@ -216,12 +276,17 @@
         <section id="lab" class="lab-section container">
             <div class="sketch-note">
                 <div class="note-inner">
-                    <h3>Keep an eye on us on this platform...</h3>
-                    <p>Investors aren't needed just yet, but the vision is growing.Regular updates are added on the
-                        roadmap above. Join the journey.</p>
+                    <h3>The system is live. The research is published. The cars are queueing up.</h3>
+                    <p>If you're a Zimbabwean shop, a fleet operator, a researcher, an investor, or you just want
+                        to follow the build — here's where to do it.</p>
                     <div class="note-actions">
-                        <a href="mailto:tarimicac+kr@gmail.com" class="btn-doodle">Email Us</a>
-                        <a href="https://github.com/lordskyzw/KnightRider" class="btn-doodle">Github Repo</a>
+                        <a href="https://ra-typed-gp-showcase-production.up.railway.app"
+                           class="btn-doodle" target="_blank" rel="noopener">Algorithm showcase</a>
+                        <a href="https://github.com/lordskyzw/KnightRider"
+                           class="btn-doodle" target="_blank" rel="noopener">Pi + mobile repo</a>
+                        <a href="https://github.com/lordskyzw/knight-rider-cloud"
+                           class="btn-doodle" target="_blank" rel="noopener">Cloud repo</a>
+                        <a href="mailto:tarimicac+kr@gmail.com" class="btn-doodle">Email us</a>
                     </div>
                 </div>
                 <div class="coffee-stain"></div>
@@ -230,7 +295,7 @@
     </main>
 
     <footer>
-        <p>Tarmica Chiwara &copy; 2026</p>
+        <p>Tarimica Chiwara &copy; 2026</p>
     </footer>
 
     <script src="script.js"></script>
