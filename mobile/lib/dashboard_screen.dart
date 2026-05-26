@@ -293,9 +293,35 @@ class _DiagBanner extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 11, color: Colors.white),
           ),
+          if (_looksLikeEperm(detail))
+            Container(
+              margin: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: const Text(
+                "⚠ This is the 'old APK' error. "
+                "INTERNET permission was added in v0.2.0+2 — "
+                "uninstall the current app and install the latest APK from your team lead.",
+                style: TextStyle(
+                  fontSize: 10.5,
+                  color: Color(0xFF8a0a17),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  static bool _looksLikeEperm(String detail) {
+    final lower = detail.toLowerCase();
+    return lower.contains('operation not permitted') ||
+        lower.contains('errno=1') ||
+        lower.contains('errno = 1');
   }
 }
 
