@@ -1,12 +1,18 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:knight_rider_mobile/main.dart';
 
 void main() {
   testWidgets('app boots without throwing', (tester) async {
+    // Use a portrait-phone-shaped viewport so the dashboard layout fits.
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     await tester.pumpWidget(const KnightRiderApp());
-    // The dashboard starts in disconnected state with no samples; verify the
-    // status chip is rendered.
+    // Dashboard starts disconnected and with no samples; verify the status
+    // pill is rendered in its OFFLINE state.
     expect(find.text('OFFLINE'), findsOneWidget);
   });
 }

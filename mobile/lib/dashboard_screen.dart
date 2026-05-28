@@ -3,12 +3,28 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'backlog_db.dart';
+import 'build_info.dart';
 import 'config.dart';
 import 'pi_client.dart';
 import 'sample.dart';
 import 'settings_screen.dart';
 import 'uploader.dart';
 import 'ws_client.dart';
+
+// ─── Tesla-inspired palette ─────────────────────────────────────────────────
+class _T {
+  static const bg        = Color(0xFF0A0A0B);
+  static const surface   = Color(0xFF16171A);
+  static const surface2  = Color(0xFF1F2024);
+  static const textHi    = Color(0xFFF0F0F2);
+  static const textMid   = Color(0xFF8E8E92);
+  static const textLow   = Color(0xFF5A5A5E);
+  static const divider   = Color(0xFF2A2B2F);
+  static const accent    = Color(0xFFC8102E);   // KnightRider red
+  static const live      = Color(0xFF34C759);
+  static const warning   = Color(0xFFFF9F0A);
+  static const cool      = Color(0xFF64D2FF);
+}
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -24,10 +40,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   WsState _state = WsState.disconnected;
   String? _wsError;
   String? _wsUri;
-  String? _backlogPullError;
   final Map<String, Sample> _latest = {};
 
-  // Backlog state
+  String? _vin;        // captured from session.vin sample
+  String? _ecuName;    // captured from session.ecu_name
+  String _buildLabel = '';
+
+  // Backlog + uploader state
   final _db = BacklogDb();
   int _backlogTotal = 0;
   int _backlogPending = 0;
@@ -35,7 +54,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _pulling = false;
   Timer? _pullTimer;
 
-  // Uploader state
   Uploader? _uploader;
   UploadTick? _lastTick;
   StreamSubscription<UploadTick>? _tickSub;
@@ -52,10 +70,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _boot() async {
     _host = await PiConfig.host();
     _cloudUrl = await PiConfig.cloudUrl();
+    _buildLabel = await BuildInfo.displayVersion();
     _attachWs();
 
     _uploader = Uploader(db: _db, cloudUrlProvider: () => _cloudUrl);
     _tickSub = _uploader!.ticks.listen((t) {
+      if (!mounted) return;
       setState(() => _lastTick = t);
       _refreshBacklogCounts();
     });
@@ -65,8 +85,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _pullTimer = Timer.periodic(const Duration(seconds: 30), (_) => _kickBacklogPull());
   }
 
+  void _attachWs() {
+    _ws?.dispose();
+    _sampleSub?.cancel();
+    _stateSub?.cancel();
+    _ws = WsClient(hostProvider: () => _host);
+    _sampleSub = _ws!.stream.listen(_onSample);
+    _stateSub = _ws!.stateStream.listen((s) {
+      if (!mounted) return;
+      setState(() {
+        _state = s;
+        _wsError = (s == WsState.connected) ? null : _ws?.lastError;
+        _wsUri = _ws?.lastTriedUri;
+      });
+      if (s == WsState.connected) _kickBacklogPull();
+    });
+    _ws!.start();
+  }
+
   void _onSample(Sample s) {
-    setState(() => _latest[s.signal] = s);
+    if (!mounted) return;
+    setState(() {
+      _latest[s.signal] = s;
+      // Session metadata samples carry the string payload in `unit`.
+      if (s.signal == 'session.vin') _vin = s.unit;
+      if (s.signal == 'session.ecu_name') _ecuName = s.unit;
+    });
   }
 
   Future<void> _refreshBacklogCounts() async {
@@ -98,10 +142,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } finally {
         client.close();
       }
-      // Successful pull — clear any stale error from a previous failure.
-      if (mounted) setState(() => _backlogPullError = null);
-    } catch (e) {
-      if (mounted) setState(() => _backlogPullError = e.toString());
+    } catch (_) {
+      // retry next tick
     } finally {
       _pulling = false;
       await _refreshBacklogCounts();
@@ -115,51 +157,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (updated == true) {
       _host = await PiConfig.host();
       _cloudUrl = await PiConfig.cloudUrl();
-      // Clear stale diagnostics from the previous host before reconnecting.
-      setState(() {
-        _wsError = null;
-        _wsUri = null;
-        _backlogPullError = null;
-      });
-      await _ws?.dispose();
-      _sampleSub?.cancel();
-      _stateSub?.cancel();
       _attachWs();
-      // Uploader reads _cloudUrl via the provider closure each tick — no
-      // restart needed.
     }
   }
 
-  /// Creates a fresh WsClient + listeners. Used by both _boot and
-  /// _openSettings so the diagnostic fields (_wsError, _wsUri) get updated
-  /// consistently on every state change.
-  void _attachWs() {
-    _ws = WsClient(hostProvider: () => _host);
-    _sampleSub = _ws!.stream.listen((sample) {
-      // First sample after a (re)connect proves the channel is genuinely
-      // up — clear any lingering banner from the previous failure.
-      if (_wsError != null && mounted) {
-        setState(() => _wsError = null);
-      }
-      _onSample(sample);
-    });
-    _stateSub = _ws!.stateStream.listen((s) {
-      setState(() {
-        _state = s;
-        _wsUri = _ws?.lastTriedUri;
-        // Only surface an error when fully disconnected — during CONNECTING
-        // the previous error is stale and would flash on every reconnect.
-        if (s == WsState.connected || s == WsState.connecting) {
-          _wsError = null;
-        } else {
-          _wsError = _ws?.lastError;
-        }
-      });
-      if (s == WsState.connected) {
-        _kickBacklogPull();
-      }
-    });
-    _ws!.start();
+  void _openMore() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _MoreSheet(latest: _latest),
+    );
   }
 
   @override
@@ -173,296 +181,841 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
+  // ─── Build ──────────────────────────────────────────────────────────────
+
+  double? _v(String key) => _latest[key]?.value;
+
   @override
   Widget build(BuildContext context) {
-    final rpm = _latest['obd.rpm'];
-    final speed = _latest['obd.speed'];
-    final coolant = _latest['obd.coolant_temp'];
-    final throttle = _latest['obd.throttle'];
-    final intake = _latest['obd.intake_air_temp'];
-    final fuel = _latest['obd.fuel_level'];
+    final rpm = _v('obd.rpm') ?? 0;
+    final speed = _v('obd.speed') ?? 0;
+    final coolant = _v('obd.coolant_temp');
+    final intake = _v('obd.intake_air_temp');
+    final battery = _v('obd.battery_v');
+    final fuel = _v('obd.fuel_level');
+    final throttle = _v('obd.throttle') ?? 0;
+    final maf = _v('obd.maf');
+    final map = _v('obd.map');
+    final dtcCount = _v('obd.dtc_count')?.toInt() ?? 0;
+
+    final dbcRpm = _v('dbc.toyota.POWERTRAIN.engine_rpm');
+    final liveRpm = (dbcRpm != null && dbcRpm > 0) ? dbcRpm : rpm;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Knight Rider'),
-        actions: [
-          _StatusChip(state: _state),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: _openSettings,
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (_state != WsState.connected && _wsError != null)
-            _DiagBanner(
-              label: 'WS',
-              uri: _wsUri,
-              detail: _wsError!,
-              color: Colors.red.shade900,
+      backgroundColor: _T.bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _TopStatusBar(
+              state: _state,
+              host: _host,
+              vin: _vin,
+              buildLabel: _buildLabel,
+              onSettings: _openSettings,
             ),
-          if (_backlogPullError != null && _state == WsState.connected)
-            _DiagBanner(
-              label: 'BACKLOG',
-              uri: 'http://$_host/backlog',
-              detail: _backlogPullError!,
-              color: Colors.orange.shade900,
-            ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                children: [
-                  _Gauge(label: 'RPM', sample: rpm, big: true),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _Gauge(label: 'Speed', sample: speed)),
-                const SizedBox(width: 12),
-                Expanded(child: _Gauge(label: 'Throttle', sample: throttle)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _Gauge(label: 'Coolant', sample: coolant)),
-                const SizedBox(width: 12),
-                Expanded(child: _Gauge(label: 'Intake Air', sample: intake)),
-              ],
-            ),
-            const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(child: _Gauge(label: 'Fuel', sample: fuel)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _BacklogCard(
-                          total: _backlogTotal,
-                          pending: _backlogPending,
-                          uploaded: _backlogUploaded,
-                          lastTick: _lastTick,
-                        ),
+            if (_state != WsState.connected && _wsError != null)
+              _ErrorBanner(label: 'WS', uri: _wsUri ?? '', detail: _wsError!),
+            const SizedBox(height: 6),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Column(
+                  children: [
+                    _HeroRpm(value: liveRpm, isLive: dbcRpm != null && dbcRpm > 0),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: _CarVisualizer(
+                        coolantC: coolant,
+                        intakeC: intake,
+                        batteryV: battery,
+                        fuelPct: fuel,
+                        rpmForPulse: liveRpm,
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    _MetricBar(
+                      label: 'SPEED',
+                      value: speed,
+                      unit: 'km/h',
+                      max: 200,
+                    ),
+                    const SizedBox(height: 8),
+                    _MetricBar(
+                      label: 'THROTTLE',
+                      value: throttle,
+                      unit: '%',
+                      max: 100,
+                    ),
+                    if (maf != null) ...[
+                      const SizedBox(height: 8),
+                      _MetricBar(label: 'MAF', value: maf, unit: 'g/s', max: 60),
                     ],
-                  ),
-                ],
+                    if (map != null) ...[
+                      const SizedBox(height: 8),
+                      _MetricBar(label: 'MAP', value: map, unit: 'kPa', max: 110),
+                    ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+            _BottomStrip(
+              backlogTotal: _backlogTotal,
+              backlogPending: _backlogPending,
+              backlogUploaded: _backlogUploaded,
+              lastTick: _lastTick,
+              dtcCount: dtcCount,
+              ecuName: _ecuName,
+              onTap: _openMore,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _DiagBanner extends StatelessWidget {
-  final String label;
-  final String? uri;
-  final String detail;
-  final Color color;
+// ─── Top status bar ─────────────────────────────────────────────────────────
+class _TopStatusBar extends StatelessWidget {
+  final WsState state;
+  final String host;
+  final String? vin;
+  final String buildLabel;
+  final VoidCallback onSettings;
+  const _TopStatusBar({
+    required this.state,
+    required this.host,
+    required this.vin,
+    required this.buildLabel,
+    required this.onSettings,
+  });
 
-  const _DiagBanner({
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = switch (state) {
+      WsState.connected => ('LIVE', _T.live),
+      WsState.connecting => ('LINK', _T.warning),
+      WsState.disconnected => ('OFFLINE', _T.accent),
+    };
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 10),
+      child: Row(
+        children: [
+          _PulseDot(color: color, pulsing: state == WsState.connected),
+          const SizedBox(width: 8),
+          Text(label,
+              style: TextStyle(
+                fontSize: 11, color: color,
+                fontWeight: FontWeight.w700, letterSpacing: 2.0,
+              )),
+          const SizedBox(width: 14),
+          const Icon(Icons.router_outlined, size: 13, color: _T.textMid),
+          const SizedBox(width: 5),
+          Text(host,
+              style: const TextStyle(
+                fontSize: 11, color: _T.textMid,
+                fontFamily: 'monospace',
+              )),
+          const Spacer(),
+          if (vin != null) ...[
+            const Icon(Icons.fingerprint, size: 13, color: _T.textMid),
+            const SizedBox(width: 4),
+            Text(_shortVin(vin!),
+                style: const TextStyle(
+                  fontSize: 10, color: _T.textMid, fontFamily: 'monospace',
+                )),
+            const SizedBox(width: 10),
+          ],
+          Text(buildLabel,
+              style: const TextStyle(
+                fontSize: 10, color: _T.textLow, fontFamily: 'monospace',
+              )),
+          IconButton(
+            iconSize: 18,
+            onPressed: onSettings,
+            icon: const Icon(Icons.settings, color: _T.textMid),
+            tooltip: 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _shortVin(String v) {
+    if (v.length <= 8) return v;
+    return '${v.substring(0, 4)}…${v.substring(v.length - 4)}';
+  }
+}
+
+class _PulseDot extends StatefulWidget {
+  final Color color;
+  final bool pulsing;
+  const _PulseDot({required this.color, required this.pulsing});
+  @override
+  State<_PulseDot> createState() => _PulseDotState();
+}
+
+class _PulseDotState extends State<_PulseDot> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this, duration: const Duration(milliseconds: 1400),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) {
+        final t = widget.pulsing ? (0.5 + 0.5 * _c.value) : 1.0;
+        return Container(
+          width: 8, height: 8,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: widget.color.withValues(alpha: t),
+            boxShadow: widget.pulsing
+                ? [BoxShadow(color: widget.color.withValues(alpha: 0.5 * t), blurRadius: 8)]
+                : null,
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─── Hero RPM ───────────────────────────────────────────────────────────────
+class _HeroRpm extends StatelessWidget {
+  final double value;
+  final bool isLive;
+  const _HeroRpm({required this.value, required this.isLive});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: value),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      builder: (_, v, __) {
+        return Column(
+          children: [
+            Text(v.round().toString(),
+                style: const TextStyle(
+                  fontSize: 92, height: 0.95,
+                  color: _T.textHi, fontWeight: FontWeight.w200,
+                  letterSpacing: -3,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                )),
+            const SizedBox(height: 2),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('RPM',
+                    style: TextStyle(
+                      fontSize: 11, color: _T.textMid,
+                      letterSpacing: 3, fontWeight: FontWeight.w600,
+                    )),
+                if (isLive) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: _T.live.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    child: const Text('DBC 42 Hz',
+                        style: TextStyle(
+                          fontSize: 8, color: _T.live,
+                          letterSpacing: 1.5, fontWeight: FontWeight.w700,
+                        )),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ─── Car + corner pods ──────────────────────────────────────────────────────
+class _CarVisualizer extends StatelessWidget {
+  final double? coolantC;
+  final double? intakeC;
+  final double? batteryV;
+  final double? fuelPct;
+  final double rpmForPulse;
+  const _CarVisualizer({
+    required this.coolantC,
+    required this.intakeC,
+    required this.batteryV,
+    required this.fuelPct,
+    required this.rpmForPulse,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (_, c) {
+      final w = c.maxWidth;
+      final carW = w * 0.40;
+      final carH = c.maxHeight.clamp(180.0, 320.0);
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          // glow behind the car, pulses with RPM
+          Center(child: _RpmGlow(rpm: rpmForPulse, size: carW * 1.6)),
+          // car silhouette centered
+          Center(
+            child: SizedBox(
+              width: carW, height: carH,
+              child: CustomPaint(painter: _CarSilhouettePainter()),
+            ),
+          ),
+          // 4 corner pods
+          Positioned(
+            left: 0, top: 0,
+            child: _CornerPod(
+              label: 'COOLANT',
+              value: coolantC == null ? '—' : coolantC!.round().toString(),
+              unit: '°C',
+              color: _coolantColor(coolantC),
+            ),
+          ),
+          Positioned(
+            right: 0, top: 0,
+            child: _CornerPod(
+              label: 'INTAKE',
+              value: intakeC == null ? '—' : intakeC!.round().toString(),
+              unit: '°C',
+              color: _T.cool,
+              align: CrossAxisAlignment.end,
+            ),
+          ),
+          Positioned(
+            left: 0, bottom: 0,
+            child: _CornerPod(
+              label: 'BATTERY',
+              value: batteryV == null ? '—' : batteryV!.toStringAsFixed(1),
+              unit: 'V',
+              color: _batteryColor(batteryV),
+            ),
+          ),
+          Positioned(
+            right: 0, bottom: 0,
+            child: _CornerPod(
+              label: 'FUEL',
+              value: fuelPct == null ? '—' : fuelPct!.round().toString(),
+              unit: '%',
+              color: _T.textHi,
+              align: CrossAxisAlignment.end,
+            ),
+          ),
+        ],
+      );
+    });
+  }
+
+  Color _coolantColor(double? c) {
+    if (c == null) return _T.textMid;
+    if (c >= 105) return _T.accent;
+    if (c >= 100) return _T.warning;
+    if (c >= 75) return _T.live;
+    return _T.cool;
+  }
+
+  Color _batteryColor(double? v) {
+    if (v == null) return _T.textMid;
+    if (v < 11.8) return _T.accent;
+    if (v < 12.4) return _T.warning;
+    return _T.live;
+  }
+}
+
+class _RpmGlow extends StatelessWidget {
+  final double rpm;
+  final double size;
+  const _RpmGlow({required this.rpm, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    // Map RPM 0-7000 to glow alpha 0.02-0.25
+    final t = (rpm.clamp(0, 7000) / 7000.0).toDouble();
+    final alpha = 0.04 + 0.22 * t;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: alpha),
+      duration: const Duration(milliseconds: 180),
+      builder: (_, a, __) => Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [
+              _T.accent.withValues(alpha: a),
+              _T.accent.withValues(alpha: 0),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CornerPod extends StatelessWidget {
+  final String label;
+  final String value;
+  final String unit;
+  final Color color;
+  final CrossAxisAlignment align;
+  const _CornerPod({
     required this.label,
-    required this.uri,
-    required this.detail,
+    required this.value,
+    required this.unit,
     required this.color,
+    this.align = CrossAxisAlignment.start,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: double.infinity,
-      color: color,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      width: 84,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: _T.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _T.divider, width: 1),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: align,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            '$label  ${uri ?? ''}',
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: Colors.white70,
-              letterSpacing: 1.2,
-            ),
+          Text(label,
+              style: const TextStyle(
+                fontSize: 9, color: _T.textMid,
+                letterSpacing: 1.5, fontWeight: FontWeight.w600,
+              )),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(value,
+                  style: TextStyle(
+                    fontSize: 24, color: color,
+                    fontWeight: FontWeight.w400, height: 1.0,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  )),
+              const SizedBox(width: 2),
+              Text(unit,
+                  style: const TextStyle(
+                    fontSize: 10, color: _T.textMid,
+                  )),
+            ],
           ),
-          Text(
-            detail,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, color: Colors.white),
-          ),
-          if (_looksLikeEperm(detail))
-            Container(
-              margin: const EdgeInsets.only(top: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: const Text(
-                "⚠ This is the 'old APK' error. "
-                "INTERNET permission was added in v0.2.0+2 — "
-                "uninstall the current app and install the latest APK from your team lead.",
-                style: TextStyle(
-                  fontSize: 10.5,
-                  color: Color(0xFF8a0a17),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
         ],
       ),
     );
   }
-
-  static bool _looksLikeEperm(String detail) {
-    final lower = detail.toLowerCase();
-    return lower.contains('operation not permitted') ||
-        lower.contains('errno=1') ||
-        lower.contains('errno = 1');
-  }
 }
 
-class _StatusChip extends StatelessWidget {
-  final WsState state;
-  const _StatusChip({required this.state});
+class _CarSilhouettePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final body = Paint()
+      ..color = _T.surface2
+      ..style = PaintingStyle.fill;
+    final stroke = Paint()
+      ..color = _T.divider
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final accent = Paint()
+      ..color = _T.divider
+      ..style = PaintingStyle.fill;
+
+    final w = size.width;
+    final h = size.height;
+    final inset = w * 0.05;
+
+    // Body — top-down stylized hatchback silhouette.
+    final bodyRect = RRect.fromLTRBR(
+      inset, h * 0.06, w - inset, h * 0.94,
+      Radius.circular(w * 0.28),
+    );
+    canvas.drawRRect(bodyRect, body);
+    canvas.drawRRect(bodyRect, stroke);
+
+    // Cabin (windscreen + roof + rear window) — narrower rounded rect.
+    final cabin = RRect.fromLTRBR(
+      w * 0.18, h * 0.20, w * 0.82, h * 0.78,
+      Radius.circular(w * 0.18),
+    );
+    final cabinPaint = Paint()..color = _T.bg.withValues(alpha: 0.7);
+    canvas.drawRRect(cabin, cabinPaint);
+    canvas.drawRRect(cabin, stroke);
+
+    // Centerline split between windscreen and rear glass.
+    canvas.drawLine(
+      Offset(w * 0.18, h * 0.49),
+      Offset(w * 0.82, h * 0.49),
+      Paint()..color = _T.divider..strokeWidth = 1,
+    );
+
+    // Wheels (4 dots at corners outside cabin).
+    final wheelR = w * 0.05;
+    for (final p in [
+      Offset(w * 0.10, h * 0.26),
+      Offset(w * 0.90, h * 0.26),
+      Offset(w * 0.10, h * 0.72),
+      Offset(w * 0.90, h * 0.72),
+    ]) {
+      canvas.drawCircle(p, wheelR, accent);
+    }
+
+    // Direction marker (front of car) — small triangle at top.
+    final path = Path()
+      ..moveTo(w * 0.50, h * 0.02)
+      ..lineTo(w * 0.46, h * 0.10)
+      ..lineTo(w * 0.54, h * 0.10)
+      ..close();
+    canvas.drawPath(path, Paint()..color = _T.accent.withValues(alpha: 0.65));
+  }
 
   @override
-  Widget build(BuildContext context) {
-    final (label, color) = switch (state) {
-      WsState.connected => ('LIVE', Colors.green),
-      WsState.connecting => ('CONNECTING', Colors.orange),
-      WsState.disconnected => ('OFFLINE', Colors.red),
-    };
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-      child: Chip(
-        label: Text(label, style: const TextStyle(fontSize: 11)),
-        backgroundColor: color.withValues(alpha: 0.2),
-        side: BorderSide(color: color),
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-      ),
-    );
-  }
+  bool shouldRepaint(_) => false;
 }
 
-class _Gauge extends StatelessWidget {
+// ─── Metric bar (linear gauges below the car) ───────────────────────────────
+class _MetricBar extends StatelessWidget {
   final String label;
-  final Sample? sample;
-  final bool big;
-  const _Gauge({required this.label, required this.sample, this.big = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final valueStr = sample == null ? '—' : sample!.value.toStringAsFixed(0);
-    final unit = sample?.unit ?? '';
-    final ts = sample?.ts;
-    final valueStyle = TextStyle(
-      fontSize: big ? 96 : 36,
-      fontWeight: FontWeight.bold,
-      fontFeatures: const [FontFeature.tabularFigures()],
-    );
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label.toUpperCase(),
-                style: const TextStyle(fontSize: 12, letterSpacing: 1.5)),
-            const SizedBox(height: 4),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(valueStr, style: valueStyle),
-                const SizedBox(width: 6),
-                Text(unit, style: const TextStyle(fontSize: 14, color: Colors.grey)),
-              ],
-            ),
-            if (ts != null)
-              Text(
-                _ago(ts),
-                style: const TextStyle(fontSize: 10, color: Colors.grey),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _ago(DateTime ts) {
-    final ms = DateTime.now().difference(ts).inMilliseconds;
-    if (ms < 1000) return '${ms}ms ago';
-    return '${(ms / 1000).toStringAsFixed(1)}s ago';
-  }
-}
-
-class _BacklogCard extends StatelessWidget {
-  final int total;
-  final int pending;
-  final int uploaded;
-  final UploadTick? lastTick;
-
-  const _BacklogCard({
-    required this.total,
-    required this.pending,
-    required this.uploaded,
-    required this.lastTick,
+  final double value;
+  final String unit;
+  final double max;
+  const _MetricBar({
+    required this.label, required this.value,
+    required this.unit, required this.max,
   });
 
   @override
   Widget build(BuildContext context) {
-    final tick = lastTick;
-    final (iconColor, statusLine) = switch (tick) {
-      null => (Colors.grey, 'idle'),
-      UploadTick(success: true, attempted: 0) => (Colors.blueGrey, 'caught up'),
-      UploadTick(success: true) => (Colors.green, 'last sync ${_ago(tick.at)}'),
-      UploadTick(error: final e?) => (Colors.red, _shortError(e)),
-      _ => (Colors.grey, 'idle'),
-    };
-
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    final fraction = (value / max).clamp(0.0, 1.0);
+    return Row(
+      children: [
+        SizedBox(
+          width: 78,
+          child: Text(label,
+              style: const TextStyle(
+                fontSize: 10, color: _T.textMid,
+                letterSpacing: 1.5, fontWeight: FontWeight.w600,
+              )),
+        ),
+        Expanded(
+          child: Container(
+            height: 6,
+            decoration: BoxDecoration(
+              color: _T.surface,
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: Stack(
+                children: [
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: fraction),
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    builder: (_, f, __) => FractionallySizedBox(
+                      widthFactor: f,
+                      child: Container(color: _T.textHi),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 92,
+          child: FittedBox(
+            alignment: Alignment.centerRight,
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
               children: [
-                const Text('BACKLOG',
-                    style: TextStyle(fontSize: 12, letterSpacing: 1.5)),
-                const Spacer(),
-                Icon(Icons.cloud_upload, size: 14, color: iconColor),
+                Text(value.toStringAsFixed(value > 99 ? 0 : 1),
+                    style: const TextStyle(
+                      fontSize: 14, color: _T.textHi,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    )),
+                const SizedBox(width: 3),
+                Text(unit,
+                    style: const TextStyle(fontSize: 10, color: _T.textMid)),
               ],
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Bottom strip ───────────────────────────────────────────────────────────
+class _BottomStrip extends StatelessWidget {
+  final int backlogTotal;
+  final int backlogPending;
+  final int backlogUploaded;
+  final UploadTick? lastTick;
+  final int dtcCount;
+  final String? ecuName;
+  final VoidCallback onTap;
+  const _BottomStrip({
+    required this.backlogTotal,
+    required this.backlogPending,
+    required this.backlogUploaded,
+    required this.lastTick,
+    required this.dtcCount,
+    required this.ecuName,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cloudColor = switch (lastTick) {
+      null => _T.textLow,
+      UploadTick(success: true, attempted: 0) => _T.textMid,
+      UploadTick(success: true) => _T.live,
+      UploadTick(error: final e?) when e.isNotEmpty => _T.accent,
+      _ => _T.textMid,
+    };
+    final dtcColor = dtcCount > 0 ? _T.warning : _T.textMid;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        decoration: const BoxDecoration(
+          color: _T.surface,
+          border: Border(top: BorderSide(color: _T.divider)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: _Stat(icon: Icons.storage,
+                  value: '$backlogTotal', label: 'STORED'),
+            ),
+            const _Divider(),
+            Expanded(
+              child: _Stat(icon: Icons.cloud_upload,
+                  value: '$backlogUploaded', label: 'SYNCED',
+                  color: cloudColor),
+            ),
+            const _Divider(),
+            Expanded(
+              child: _Stat(icon: Icons.pending,
+                  value: '$backlogPending', label: 'WAIT'),
+            ),
+            const _Divider(),
+            Expanded(
+              child: _Stat(icon: Icons.warning_amber,
+                  value: '$dtcCount', label: 'DTC', color: dtcColor),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.expand_less, size: 14, color: _T.textMid),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+  final Color? color;
+  const _Stat({required this.icon, required this.value, required this.label,
+               this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? _T.textHi;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 11, color: c),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                value,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13, color: c,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 1),
+        Text(label,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 8, color: _T.textMid,
+              letterSpacing: 1.2, fontWeight: FontWeight.w700,
+            )),
+      ],
+    );
+  }
+}
+
+class _Divider extends StatelessWidget {
+  const _Divider();
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 1, height: 16, color: _T.divider,
+        margin: const EdgeInsets.symmetric(horizontal: 6),
+      );
+}
+
+// ─── Error banner (WS issues) ───────────────────────────────────────────────
+class _ErrorBanner extends StatelessWidget {
+  final String label;
+  final String uri;
+  final String detail;
+  const _ErrorBanner({required this.label, required this.uri, required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    final isOldApk = detail.toLowerCase().contains('operation not permitted')
+        || detail.toLowerCase().contains('errno = 1');
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: _T.accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _T.accent.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Text(label, style: const TextStyle(
+                color: _T.accent, fontWeight: FontWeight.w700, fontSize: 11,
+                letterSpacing: 1.5)),
+            const SizedBox(width: 8),
+            Expanded(child: Text(uri, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: _T.textMid, fontFamily: 'monospace', fontSize: 10))),
+          ]),
+          const SizedBox(height: 4),
+          Text(detail, maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: _T.textHi, fontSize: 11)),
+          if (isOldApk) ...[
             const SizedBox(height: 4),
-            Text('$uploaded / $total',
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-            Text('$pending pending',
-                style: const TextStyle(fontSize: 11, color: Colors.grey)),
-            Text(statusLine,
-                style: TextStyle(fontSize: 10, color: iconColor),
-                overflow: TextOverflow.ellipsis),
+            const Text('⚠ Old APK detected — uninstall + reinstall the current build.',
+                style: TextStyle(color: _T.warning, fontSize: 10,
+                    fontWeight: FontWeight.w600)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Bottom sheet showing every signal ──────────────────────────────────────
+class _MoreSheet extends StatelessWidget {
+  final Map<String, Sample> latest;
+  const _MoreSheet({required this.latest});
+
+  @override
+  Widget build(BuildContext context) {
+    final keys = latest.keys.toList()..sort();
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.62,
+      minChildSize: 0.25,
+      maxChildSize: 0.95,
+      builder: (_, scroll) => Container(
+        decoration: const BoxDecoration(
+          color: _T.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border(
+            top: BorderSide(color: _T.divider),
+            left: BorderSide(color: _T.divider),
+            right: BorderSide(color: _T.divider),
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: _T.textLow,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(children: [
+                Text('ALL SIGNALS', style: TextStyle(
+                  fontSize: 11, color: _T.textMid,
+                  letterSpacing: 2, fontWeight: FontWeight.w700,
+                )),
+              ]),
+            ),
+            const Divider(height: 1, color: _T.divider),
+            Expanded(
+              child: ListView.separated(
+                controller: scroll,
+                itemCount: keys.length,
+                separatorBuilder: (_, __) =>
+                    const Divider(height: 1, color: _T.divider),
+                itemBuilder: (_, i) {
+                  final s = latest[keys[i]]!;
+                  final isString = s.signal.startsWith('session.');
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(s.signal,
+                              style: const TextStyle(
+                                  color: _T.textHi, fontSize: 13,
+                                  fontFamily: 'monospace')),
+                        ),
+                        Text(
+                          isString
+                              ? s.unit
+                              : '${_fmt(s.value)} ${s.unit}'.trim(),
+                          style: const TextStyle(
+                            color: _T.textMid, fontSize: 13,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  String _ago(DateTime ts) {
-    final s = DateTime.now().difference(ts).inSeconds;
-    if (s < 60) return '${s}s ago';
-    final m = s ~/ 60;
-    return '${m}m ago';
-  }
-
-  String _shortError(String e) {
-    final t = e.length > 32 ? '${e.substring(0, 32)}…' : e;
-    return 'err: $t';
+  String _fmt(double v) {
+    if (v.abs() >= 1000) return v.toStringAsFixed(0);
+    if (v.abs() >= 10) return v.toStringAsFixed(1);
+    return v.toStringAsFixed(2);
   }
 }
