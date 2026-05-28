@@ -7,7 +7,10 @@ class PiConfig {
   static const _kBacklogCursor = 'backlog_cursor';
   static const _kCloudUrl = 'cloud_url';
 
-  static const defaultHost = 'raspberrypi.local:8080';
+  // Matches the Pi's hostname set during the 2026-05-28 field-setup session.
+  // mDNS resolves this on any device on the same LAN/hotspot, regardless of
+  // what IP the iPhone hands the Pi this session.
+  static const defaultHost = 'kitt.local:8080';
   static const defaultCloudUrl =
       'https://knight-rider-cloud-production.up.railway.app';
 
