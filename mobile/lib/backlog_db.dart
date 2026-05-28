@@ -144,4 +144,60 @@ class BacklogDb {
       }
     });
   }
+
+  /// Filter mode for [recent].
+  Future<List<BatchRecord>> recent({
+    BatchFilter filter = BatchFilter.all,
+    int limit = 200,
+  }) async {
+    final db = await _open();
+    final where = switch (filter) {
+      BatchFilter.all      => null,
+      BatchFilter.uploaded => 'uploaded_at IS NOT NULL',
+      BatchFilter.pending  => 'uploaded_at IS NULL',
+    };
+    final rows = await db.query(
+      'batches',
+      where: where,
+      orderBy: 'batch_id DESC',
+      limit: limit,
+    );
+    return rows
+        .map((r) => BatchRecord(
+              batchId: r['batch_id'] as int,
+              deviceId: r['device_id'] as String,
+              createdAt: DateTime.parse(r['created_at'] as String),
+              sampleCount: r['sample_count'] as int,
+              uploadedAt: (r['uploaded_at'] as String?) != null
+                  ? DateTime.parse(r['uploaded_at'] as String)
+                  : null,
+              envelopeB64Length: (r['envelope_b64'] as String).length,
+            ))
+        .toList();
+  }
+}
+
+enum BatchFilter { all, uploaded, pending }
+
+/// Lightweight projection of a stored batch row for UI display. Does NOT
+/// include the envelope bytes themselves — those can be hundreds of KB each
+/// and the dashboard never needs them.
+class BatchRecord {
+  final int batchId;
+  final String deviceId;
+  final DateTime createdAt;
+  final int sampleCount;
+  final DateTime? uploadedAt;
+  final int envelopeB64Length;
+
+  const BatchRecord({
+    required this.batchId,
+    required this.deviceId,
+    required this.createdAt,
+    required this.sampleCount,
+    required this.uploadedAt,
+    required this.envelopeB64Length,
+  });
+
+  bool get isUploaded => uploadedAt != null;
 }

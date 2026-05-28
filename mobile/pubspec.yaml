@@ -1,7 +1,7 @@
 name: knight_rider_mobile
 description: "Knight Rider mobile dashboard + courier client."
 publish_to: 'none'
-version: 0.2.0+2
+version: 0.3.0+3
 
 environment:
   sdk: ^3.10.4
@@ -25,6 +25,12 @@ dependencies:
   # Build/version info so the dashboard can show what APK is running
   package_info_plus: ^8.0.0
 
+  # SVG rendering for the car silhouette + future per-vehicle assets
+  flutter_svg: ^2.0.0
+
+  # Timestamp formatting on the batches/DTC drill-down screens
+  intl: ^0.20.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -32,3 +38,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/cars/

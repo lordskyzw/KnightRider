@@ -1,10 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import 'backlog_db.dart';
+import 'batches_screen.dart';
 import 'build_info.dart';
 import 'config.dart';
+import 'dtc_screen.dart';
 import 'pi_client.dart';
 import 'sample.dart';
 import 'settings_screen.dart';
@@ -170,6 +173,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  void _openBatches(BatchFilter filter) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => BatchesScreen(filter: filter),
+    ));
+  }
+
+  void _openDtc() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => DtcScreen(latest: Map.of(_latest)),
+    ));
+  }
+
   @override
   void dispose() {
     _sampleSub?.cancel();
@@ -265,7 +280,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               lastTick: _lastTick,
               dtcCount: dtcCount,
               ecuName: _ecuName,
-              onTap: _openMore,
+              onStored: () => _openBatches(BatchFilter.all),
+              onSynced: () => _openBatches(BatchFilter.uploaded),
+              onWait: () => _openBatches(BatchFilter.pending),
+              onDtc: _openDtc,
+              onMore: _openMore,
             ),
           ],
         ),
@@ -366,7 +385,7 @@ class _PulseDotState extends State<_PulseDot> with SingleTickerProviderStateMixi
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _c,
-      builder: (_, __) {
+      builder: (_, _) {
         final t = widget.pulsing ? (0.5 + 0.5 * _c.value) : 1.0;
         return Container(
           width: 8, height: 8,
@@ -395,7 +414,7 @@ class _HeroRpm extends StatelessWidget {
       tween: Tween(begin: 0, end: value),
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
-      builder: (_, v, __) {
+      builder: (_, v, _) {
         return Column(
           children: [
             Text(v.round().toString(),
@@ -464,11 +483,15 @@ class _CarVisualizer extends StatelessWidget {
         children: [
           // glow behind the car, pulses with RPM
           Center(child: _RpmGlow(rpm: rpmForPulse, size: carW * 1.6)),
-          // car silhouette centered
+          // car silhouette centered (SVG asset — Vitz NSP130)
           Center(
             child: SizedBox(
               width: carW, height: carH,
-              child: CustomPaint(painter: _CarSilhouettePainter()),
+              child: SvgPicture.asset(
+                'assets/cars/vitz.svg',
+                fit: BoxFit.contain,
+                semanticsLabel: 'Toyota Vitz top-down silhouette',
+              ),
             ),
           ),
           // 4 corner pods
@@ -544,7 +567,7 @@ class _RpmGlow extends StatelessWidget {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: alpha),
       duration: const Duration(milliseconds: 180),
-      builder: (_, a, __) => Container(
+      builder: (_, a, _) => Container(
         width: size, height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
@@ -617,72 +640,6 @@ class _CornerPod extends StatelessWidget {
   }
 }
 
-class _CarSilhouettePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final body = Paint()
-      ..color = _T.surface2
-      ..style = PaintingStyle.fill;
-    final stroke = Paint()
-      ..color = _T.divider
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    final accent = Paint()
-      ..color = _T.divider
-      ..style = PaintingStyle.fill;
-
-    final w = size.width;
-    final h = size.height;
-    final inset = w * 0.05;
-
-    // Body — top-down stylized hatchback silhouette.
-    final bodyRect = RRect.fromLTRBR(
-      inset, h * 0.06, w - inset, h * 0.94,
-      Radius.circular(w * 0.28),
-    );
-    canvas.drawRRect(bodyRect, body);
-    canvas.drawRRect(bodyRect, stroke);
-
-    // Cabin (windscreen + roof + rear window) — narrower rounded rect.
-    final cabin = RRect.fromLTRBR(
-      w * 0.18, h * 0.20, w * 0.82, h * 0.78,
-      Radius.circular(w * 0.18),
-    );
-    final cabinPaint = Paint()..color = _T.bg.withValues(alpha: 0.7);
-    canvas.drawRRect(cabin, cabinPaint);
-    canvas.drawRRect(cabin, stroke);
-
-    // Centerline split between windscreen and rear glass.
-    canvas.drawLine(
-      Offset(w * 0.18, h * 0.49),
-      Offset(w * 0.82, h * 0.49),
-      Paint()..color = _T.divider..strokeWidth = 1,
-    );
-
-    // Wheels (4 dots at corners outside cabin).
-    final wheelR = w * 0.05;
-    for (final p in [
-      Offset(w * 0.10, h * 0.26),
-      Offset(w * 0.90, h * 0.26),
-      Offset(w * 0.10, h * 0.72),
-      Offset(w * 0.90, h * 0.72),
-    ]) {
-      canvas.drawCircle(p, wheelR, accent);
-    }
-
-    // Direction marker (front of car) — small triangle at top.
-    final path = Path()
-      ..moveTo(w * 0.50, h * 0.02)
-      ..lineTo(w * 0.46, h * 0.10)
-      ..lineTo(w * 0.54, h * 0.10)
-      ..close();
-    canvas.drawPath(path, Paint()..color = _T.accent.withValues(alpha: 0.65));
-  }
-
-  @override
-  bool shouldRepaint(_) => false;
-}
-
 // ─── Metric bar (linear gauges below the car) ───────────────────────────────
 class _MetricBar extends StatelessWidget {
   final String label;
@@ -722,7 +679,7 @@ class _MetricBar extends StatelessWidget {
                     tween: Tween(begin: 0, end: fraction),
                     duration: const Duration(milliseconds: 220),
                     curve: Curves.easeOutCubic,
-                    builder: (_, f, __) => FractionallySizedBox(
+                    builder: (_, f, _) => FractionallySizedBox(
                       widthFactor: f,
                       child: Container(color: _T.textHi),
                     ),
@@ -768,7 +725,11 @@ class _BottomStrip extends StatelessWidget {
   final UploadTick? lastTick;
   final int dtcCount;
   final String? ecuName;
-  final VoidCallback onTap;
+  final VoidCallback onStored;
+  final VoidCallback onSynced;
+  final VoidCallback onWait;
+  final VoidCallback onDtc;
+  final VoidCallback onMore;
   const _BottomStrip({
     required this.backlogTotal,
     required this.backlogPending,
@@ -776,7 +737,11 @@ class _BottomStrip extends StatelessWidget {
     required this.lastTick,
     required this.dtcCount,
     required this.ecuName,
-    required this.onTap,
+    required this.onStored,
+    required this.onSynced,
+    required this.onWait,
+    required this.onDtc,
+    required this.onMore,
   });
 
   @override
@@ -790,40 +755,88 @@ class _BottomStrip extends StatelessWidget {
     };
     final dtcColor = dtcCount > 0 ? _T.warning : _T.textMid;
 
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-        decoration: const BoxDecoration(
-          color: _T.surface,
-          border: Border(top: BorderSide(color: _T.divider)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
+    return Container(
+      decoration: const BoxDecoration(
+        color: _T.surface,
+        border: Border(top: BorderSide(color: _T.divider)),
+      ),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: _StatButton(
+              onTap: onStored,
               child: _Stat(icon: Icons.storage,
                   value: '$backlogTotal', label: 'STORED'),
             ),
-            const _Divider(),
-            Expanded(
+          ),
+          const _Divider(),
+          Expanded(
+            child: _StatButton(
+              onTap: onSynced,
               child: _Stat(icon: Icons.cloud_upload,
                   value: '$backlogUploaded', label: 'SYNCED',
                   color: cloudColor),
             ),
-            const _Divider(),
-            Expanded(
+          ),
+          const _Divider(),
+          Expanded(
+            child: _StatButton(
+              onTap: onWait,
               child: _Stat(icon: Icons.pending,
                   value: '$backlogPending', label: 'WAIT'),
             ),
-            const _Divider(),
-            Expanded(
+          ),
+          const _Divider(),
+          Expanded(
+            child: _StatButton(
+              onTap: onDtc,
               child: _Stat(icon: Icons.warning_amber,
                   value: '$dtcCount', label: 'DTC', color: dtcColor),
             ),
-            const SizedBox(width: 4),
-            const Icon(Icons.expand_less, size: 14, color: _T.textMid),
-          ],
+          ),
+          const _Divider(),
+          _StatButton(
+            onTap: onMore,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.expand_less, size: 16, color: _T.textMid),
+                  SizedBox(height: 2),
+                  Text('MORE',
+                      style: TextStyle(
+                        fontSize: 8, color: _T.textMid,
+                        letterSpacing: 1.2, fontWeight: FontWeight.w700,
+                      )),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatButton extends StatelessWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  const _StatButton({required this.child, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        splashColor: _T.surface2,
+        highlightColor: _T.surface2,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+          child: child,
         ),
       ),
     );
@@ -976,7 +989,7 @@ class _MoreSheet extends StatelessWidget {
               child: ListView.separated(
                 controller: scroll,
                 itemCount: keys.length,
-                separatorBuilder: (_, __) =>
+                separatorBuilder: (_, _) =>
                     const Divider(height: 1, color: _T.divider),
                 itemBuilder: (_, i) {
                   final s = latest[keys[i]]!;
