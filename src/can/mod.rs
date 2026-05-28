@@ -3,6 +3,7 @@
 //! This module provides the low-level interface to the CAN bus via SocketCAN,
 //! as well as higher-level protocol handling for ISO-TP and OBD-II.
 
+pub mod dtc;
 pub mod interface;
 pub mod isotp;
 pub mod obd;

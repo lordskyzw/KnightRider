@@ -1,6 +1,8 @@
 //! OBD-II protocol implementation.
 //!
-//! Implements ISO 15031 / SAE J1979 over CAN bus.
+//! Implements ISO 15031 / SAE J1979 over CAN bus. Modes 0x01 (current data)
+//! and 0x09 (vehicle info) supported on the request side; Mode 0x03 (stored
+//! DTCs) is handled by [`super::dtc`].
 
 use std::fmt;
 use super::isotp::IsoTpSession;
@@ -19,7 +21,12 @@ pub mod addressing {
 /// OBD-II service (mode) identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObdService {
+    /// Mode 0x01 — show current data.
     CurrentData = 0x01,
+    /// Mode 0x03 — show stored DTCs (read-only; reply parsed by `dtc.rs`).
+    StoredDtcs = 0x03,
+    /// Mode 0x09 — request vehicle information (VIN, calibration ID, ECU name).
+    VehicleInfo = 0x09,
 }
 
 impl ObdService {
@@ -28,25 +35,52 @@ impl ObdService {
     }
 }
 
-/// OBD-II Parameter ID (PID) definitions.
+/// OBD-II Parameter ID (PID) definitions for Mode 0x01 current data.
+///
+/// Verified against the Toyota Vitz DBA-NSP130's Mode 0x01 PID 0x00 bitmap
+/// (`BE 3F A8 13` — see field log 2026-05-28). All entries below are
+/// confirmed supported on that ECU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum ObdPid {
     SupportedPids01To20 = 0x00,
+    FuelSystemStatus = 0x03,
+    EngineLoad = 0x04,
     CoolantTemperature = 0x05,
+    ShortTermFuelTrimBank1 = 0x06,
+    LongTermFuelTrimBank1 = 0x07,
+    IntakeManifoldPressure = 0x0B,
     EngineRpm = 0x0C,
     VehicleSpeed = 0x0D,
+    TimingAdvance = 0x0E,
     IntakeAirTemperature = 0x0F,
+    MafAirFlowRate = 0x10,
     ThrottlePosition = 0x11,
+    O2SensorsPresent = 0x13,
+    O2SensorBank1Sensor2 = 0x15,
+    RunTimeSinceStart = 0x1F,
     SupportedPids21To40 = 0x20,
     FuelTankLevel = 0x2F,
+    BatteryVoltage = 0x42,
+    AbsoluteLoadValue = 0x43,
+    AmbientAirTemperature = 0x46,
+    OilTemperature = 0x5C,
+    EngineFuelRate = 0x5E,
 }
 
 impl ObdPid {
+    /// Minimum number of data bytes the decoder needs.
     pub fn response_bytes(self) -> usize {
         match self {
             ObdPid::SupportedPids01To20 | ObdPid::SupportedPids21To40 => 4,
-            ObdPid::EngineRpm => 2,
+            ObdPid::EngineRpm
+            | ObdPid::IntakeManifoldPressure   // 1 byte but read as A; 2 reserved
+            | ObdPid::MafAirFlowRate
+            | ObdPid::RunTimeSinceStart
+            | ObdPid::BatteryVoltage
+            | ObdPid::AbsoluteLoadValue
+            | ObdPid::EngineFuelRate => 2,
+            ObdPid::O2SensorBank1Sensor2 => 2,    // voltage A, STFT B
             _ => 1,
         }
     }
@@ -54,23 +88,56 @@ impl ObdPid {
     pub fn name(self) -> &'static str {
         match self {
             ObdPid::SupportedPids01To20 => "Supported PIDs [01-20]",
+            ObdPid::FuelSystemStatus => "Fuel System Status",
+            ObdPid::EngineLoad => "Calculated Engine Load",
             ObdPid::CoolantTemperature => "Coolant Temperature",
+            ObdPid::ShortTermFuelTrimBank1 => "Short-Term Fuel Trim B1",
+            ObdPid::LongTermFuelTrimBank1 => "Long-Term Fuel Trim B1",
+            ObdPid::IntakeManifoldPressure => "Intake Manifold Pressure",
             ObdPid::EngineRpm => "Engine RPM",
             ObdPid::VehicleSpeed => "Vehicle Speed",
+            ObdPid::TimingAdvance => "Timing Advance",
             ObdPid::IntakeAirTemperature => "Intake Air Temperature",
+            ObdPid::MafAirFlowRate => "MAF Air Flow Rate",
             ObdPid::ThrottlePosition => "Throttle Position",
+            ObdPid::O2SensorsPresent => "O2 Sensors Present",
+            ObdPid::O2SensorBank1Sensor2 => "O2 Sensor B1S2 Voltage",
+            ObdPid::RunTimeSinceStart => "Run Time Since Start",
             ObdPid::SupportedPids21To40 => "Supported PIDs [21-40]",
             ObdPid::FuelTankLevel => "Fuel Tank Level",
+            ObdPid::BatteryVoltage => "Battery / Control Module Voltage",
+            ObdPid::AbsoluteLoadValue => "Absolute Load Value",
+            ObdPid::AmbientAirTemperature => "Ambient Air Temperature",
+            ObdPid::OilTemperature => "Engine Oil Temperature",
+            ObdPid::EngineFuelRate => "Engine Fuel Rate",
         }
     }
 
     pub fn unit(self) -> &'static str {
         match self {
-            ObdPid::SupportedPids01To20 | ObdPid::SupportedPids21To40 => "",
-            ObdPid::CoolantTemperature | ObdPid::IntakeAirTemperature => "°C",
+            ObdPid::SupportedPids01To20
+            | ObdPid::SupportedPids21To40
+            | ObdPid::FuelSystemStatus
+            | ObdPid::O2SensorsPresent => "",
+            ObdPid::CoolantTemperature
+            | ObdPid::IntakeAirTemperature
+            | ObdPid::AmbientAirTemperature
+            | ObdPid::OilTemperature => "°C",
             ObdPid::EngineRpm => "rpm",
             ObdPid::VehicleSpeed => "km/h",
-            ObdPid::ThrottlePosition | ObdPid::FuelTankLevel => "%",
+            ObdPid::ThrottlePosition
+            | ObdPid::FuelTankLevel
+            | ObdPid::EngineLoad
+            | ObdPid::ShortTermFuelTrimBank1
+            | ObdPid::LongTermFuelTrimBank1
+            | ObdPid::AbsoluteLoadValue => "%",
+            ObdPid::IntakeManifoldPressure => "kPa",
+            ObdPid::TimingAdvance => "° BTDC",
+            ObdPid::MafAirFlowRate => "g/s",
+            ObdPid::O2SensorBank1Sensor2 => "V",
+            ObdPid::RunTimeSinceStart => "s",
+            ObdPid::BatteryVoltage => "V",
+            ObdPid::EngineFuelRate => "L/h",
         }
     }
 }
@@ -153,6 +220,19 @@ impl ObdRequest {
     }
 }
 
+/// Helper to build a Mode 0x03 (read stored DTCs) request frame.
+pub fn build_stored_dtc_request() -> ([u8; 8], u32) {
+    let frame = IsoTpSession::build_single_frame(&[ObdService::StoredDtcs as u8]);
+    (frame, addressing::OBD_REQUEST_ID)
+}
+
+/// Helper to build a Mode 0x09 (vehicle info) request frame for the given
+/// info-type PID (e.g. 0x02 for VIN, 0x04 for calibration ID).
+pub fn build_vehicle_info_request(info_pid: u8) -> ([u8; 8], u32) {
+    let frame = IsoTpSession::build_single_frame(&[ObdService::VehicleInfo as u8, info_pid]);
+    (frame, addressing::OBD_REQUEST_ID)
+}
+
 /// OBD-II response parser.
 #[derive(Debug, Clone)]
 pub struct ObdResponse {
@@ -199,15 +279,37 @@ impl ObdResponse {
             return Err(ObdError::ResponseTooShort { expected, actual: self.data.len() });
         }
 
+        let a = self.data[0] as f64;
+        let b = if self.data.len() > 1 { self.data[1] as f64 } else { 0.0 };
+
+        // Formulas: SAE J1979 / ISO 15031-5.
         let value = match pid {
             ObdPid::SupportedPids01To20 | ObdPid::SupportedPids21To40 => {
-                let (a, b, c, d) = (self.data[0] as f64, self.data[1] as f64, self.data[2] as f64, self.data[3] as f64);
+                let c = self.data[2] as f64;
+                let d = self.data[3] as f64;
                 (a * 16777216.0) + (b * 65536.0) + (c * 256.0) + d
             }
-            ObdPid::EngineRpm => ((self.data[0] as f64 * 256.0) + self.data[1] as f64) / 4.0,
-            ObdPid::VehicleSpeed => self.data[0] as f64,
-            ObdPid::CoolantTemperature | ObdPid::IntakeAirTemperature => self.data[0] as f64 - 40.0,
-            ObdPid::ThrottlePosition | ObdPid::FuelTankLevel => (self.data[0] as f64 * 100.0) / 255.0,
+            ObdPid::FuelSystemStatus | ObdPid::O2SensorsPresent => a,
+            ObdPid::EngineLoad
+            | ObdPid::ThrottlePosition
+            | ObdPid::FuelTankLevel => a * 100.0 / 255.0,
+            ObdPid::AbsoluteLoadValue => (a * 256.0 + b) * 100.0 / 255.0,
+            ObdPid::ShortTermFuelTrimBank1 | ObdPid::LongTermFuelTrimBank1 => {
+                (a - 128.0) * 100.0 / 128.0
+            }
+            ObdPid::IntakeManifoldPressure => a, // kPa absolute
+            ObdPid::EngineRpm => (a * 256.0 + b) / 4.0,
+            ObdPid::VehicleSpeed => a,
+            ObdPid::TimingAdvance => (a - 128.0) / 2.0,
+            ObdPid::CoolantTemperature
+            | ObdPid::IntakeAirTemperature
+            | ObdPid::AmbientAirTemperature
+            | ObdPid::OilTemperature => a - 40.0,
+            ObdPid::MafAirFlowRate => (a * 256.0 + b) / 100.0,
+            ObdPid::O2SensorBank1Sensor2 => a / 200.0,           // voltage; STFT in B
+            ObdPid::RunTimeSinceStart => a * 256.0 + b,
+            ObdPid::BatteryVoltage => (a * 256.0 + b) / 1000.0,  // mV → V
+            ObdPid::EngineFuelRate => (a * 256.0 + b) / 20.0,
         };
 
         Ok(DecodedValue { pid, value, unit: pid.unit(), raw: self.data.clone() })
@@ -230,6 +332,46 @@ mod tests {
         let response = ObdResponse { ecu_id: 0x7E8, service: 0x01, pid: 0x0C, data: vec![0x2E, 0xE0] };
         let decoded = response.decode(ObdPid::EngineRpm).unwrap();
         assert_eq!(decoded.value, 3000.0);
+    }
+
+    #[test]
+    fn test_decode_maf() {
+        // 0x0A 0x41 = (10*256 + 65)/100 = 26.25 g/s
+        let response = ObdResponse {
+            ecu_id: 0x7E8, service: 0x01, pid: 0x10, data: vec![0x0A, 0x41],
+        };
+        let decoded = response.decode(ObdPid::MafAirFlowRate).unwrap();
+        assert!((decoded.value - 26.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_decode_engine_load() {
+        // 0x80 = 128/255*100 ≈ 50.196 %
+        let response = ObdResponse {
+            ecu_id: 0x7E8, service: 0x01, pid: 0x04, data: vec![0x80],
+        };
+        let decoded = response.decode(ObdPid::EngineLoad).unwrap();
+        assert!((decoded.value - 50.196).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_decode_fuel_trim_zero() {
+        // 0x80 = no correction (0%)
+        let response = ObdResponse {
+            ecu_id: 0x7E8, service: 0x01, pid: 0x06, data: vec![0x80],
+        };
+        let decoded = response.decode(ObdPid::ShortTermFuelTrimBank1).unwrap();
+        assert!((decoded.value - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_decode_battery() {
+        // 0x2F 0xC0 = 12224 / 1000 = 12.224 V (typical engine-running)
+        let response = ObdResponse {
+            ecu_id: 0x7E8, service: 0x01, pid: 0x42, data: vec![0x2F, 0xC0],
+        };
+        let decoded = response.decode(ObdPid::BatteryVoltage).unwrap();
+        assert!((decoded.value - 12.224).abs() < 0.001);
     }
 
     #[test]

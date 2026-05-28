@@ -25,7 +25,7 @@ use std::time::Duration;
 use knight_rider::buffer::store::Store;
 use knight_rider::buffer::writer;
 use knight_rider::can::CanInterface;
-use knight_rider::extractor::{self, obd_poller};
+use knight_rider::extractor::{self, obd_poller, sniffer};
 use knight_rider::server::{self, AppState};
 
 struct Args {
@@ -71,12 +71,22 @@ async fn main() {
     let args = Args::from_env();
 
     // ── CAN interface ──────────────────────────────────────────────────────
+    // Two sockets on the same interface: one for the OBD poller (sends + recvs
+    // diagnostic frames), one for the passive sniffer (raw broadcast read).
+    // SocketCAN gives each socket its own RX queue so they don't interfere.
     log::info!("opening CAN interface: {}", args.interface);
-    let can = match CanInterface::open(&args.interface) {
+    let can_obd = match CanInterface::open(&args.interface) {
         Ok(c) => c,
         Err(e) => {
-            log::error!("failed to open CAN: {}", e);
+            log::error!("failed to open CAN (obd): {}", e);
             std::process::exit(1);
+        }
+    };
+    let can_sniff = match CanInterface::open(&args.interface) {
+        Ok(c) => Some(c),
+        Err(e) => {
+            log::warn!("failed to open second CAN socket for sniffer: {} — running with poller only", e);
+            None
         }
     };
 
@@ -107,11 +117,13 @@ async fn main() {
     let writer_rx = tx.subscribe();
 
     // ── Extractors ────────────────────────────────────────────────────────
-    let _poller = obd_poller::spawn(can, tx.clone(), Default::default());
+    let _poller = obd_poller::spawn(can_obd, tx.clone(), Default::default());
     log::info!("obd-poller spawned");
-    // Sniffer is wired in once opendbc decode lands. It needs its own CAN
-    // handle; skip until then to avoid a second interface open with nothing
-    // to do.
+
+    if let Some(c) = can_sniff {
+        let _sniffer = sniffer::spawn(c, tx.clone());
+        log::info!("can-sniffer spawned (Toyota Prius DBC subset)");
+    }
 
     // ── Buffer writer ─────────────────────────────────────────────────────
     let writer_handle = tokio::spawn({
