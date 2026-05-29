@@ -1,0 +1,19 @@
+workflows:
+  ios-unsigned-dev:
+    name: iOS Unsigned Dev Build
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      xcode: latest
+    scripts:
+      - name: Flutter version
+        script: flutter --version
+      - name: Flutter pub get
+        working_directory: mobile
+        script: flutter pub get
+      - name: Build iOS (unsigned)
+        working_directory: mobile
+        script: flutter build ios --release --no-codesign
+    artifacts:
+      - mobile/build/ios/iphoneos/Runner.app
