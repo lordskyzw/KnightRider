@@ -36,6 +36,38 @@ PRETTY_NAME = {
     "obd.fuel_level":      "Fuel tank level",
 }
 
+# Human descriptions for the stored DTCs we're likely to see. Anything not
+# listed still shows up — just with a generic note pointing at the manual.
+DTC_DESCRIPTIONS = {
+    "p0420": "Catalyst System Efficiency Below Threshold (Bank 1)",
+    "p0430": "Catalyst System Efficiency Below Threshold (Bank 2)",
+    "p0171": "System Too Lean (Bank 1)",
+    "p0174": "System Too Lean (Bank 2)",
+    "p0300": "Random/Multiple Cylinder Misfire Detected",
+    "p0301": "Cylinder 1 Misfire Detected",
+    "p0302": "Cylinder 2 Misfire Detected",
+    "p0303": "Cylinder 3 Misfire Detected",
+    "p0304": "Cylinder 4 Misfire Detected",
+    "p0128": "Coolant Thermostat Below Regulating Temperature",
+    "p0442": "Evaporative Emission System Leak (small)",
+    "p0455": "Evaporative Emission System Leak (large)",
+    "p0011": "Camshaft Position — Timing Over-Advanced (Bank 1)",
+}
+
+
+def describe_dtc(code: str) -> str:
+    return DTC_DESCRIPTIONS.get(code.lower(),
+                                "Stored fault code — see service manual")
+
+
+def stored_dtcs(by_signal) -> list:
+    """Codes from `dtc.stored.<code>` signals, e.g. 'P0420'."""
+    codes = set()
+    for sig in by_signal:
+        if sig.startswith("dtc.stored."):
+            codes.add(sig.rsplit(".", 1)[-1].upper())
+    return sorted(codes)
+
 
 def parse_ts(s: str) -> datetime:
     s = s.replace("Z", "+00:00")
@@ -63,6 +95,8 @@ def title_page(pdf: PdfPages, data: dict, source_db: str):
         by_signal[s["signal"]].append(s["value"])
         units[s["signal"]] = s["unit"]
 
+    dtcs = stored_dtcs(by_signal)
+
     fig = plt.figure(figsize=(8.27, 11.69))   # A4 portrait
     gs = GridSpec(20, 1, figure=fig, hspace=0.6)
 
@@ -74,7 +108,7 @@ def title_page(pdf: PdfPages, data: dict, source_db: str):
     ax_title.text(0.0, 0.55, "Field-Capture Report", fontsize=22, fontweight="bold",
                   color="#1a1a1a")
     ax_title.text(0.0, 0.2,
-                  "Decoded OBD-II telemetry from a Toyota Vitz DBA-NSP130 (engine idling)",
+                  "Decoded OBD-II + CAN telemetry capture",
                   fontsize=11, color="#444", style="italic")
     ax_title.axhline(0.05, color="#C8102E", linewidth=2)
 
@@ -92,12 +126,16 @@ def title_page(pdf: PdfPages, data: dict, source_db: str):
         ("Last sample",         dt_last.strftime("%Y-%m-%d %H:%M:%S UTC")),
         ("Capture duration",    f"{duration:.1f} s  ({duration/60:.2f} min)"),
         ("Effective rate",      f"{data['sample_count']/duration:.2f} samples/sec"),
+        ("Stored DTCs",         ", ".join(dtcs) if dtcs else "none"),
     ]
     for i, (k, v) in enumerate(meta_rows):
         y = 1.0 - (i + 1) * (1.0 / (len(meta_rows) + 1))
         ax_meta.text(0.0,  y, k,           fontsize=10, color="#555")
-        ax_meta.text(0.32, y, str(v),      fontsize=10, color="#1a1a1a",
-                     family="monospace")
+        # Highlight the stored-DTC row in red when a fault is present.
+        vcolor = "#C8102E" if (k == "Stored DTCs" and dtcs) else "#1a1a1a"
+        ax_meta.text(0.32, y, str(v),      fontsize=10, color=vcolor,
+                     family="monospace",
+                     fontweight="bold" if vcolor == "#C8102E" else "normal")
 
     # Stats table
     ax_stats = fig.add_subplot(gs[9:17, 0])
@@ -140,11 +178,30 @@ def title_page(pdf: PdfPages, data: dict, source_db: str):
         for j in range(len(header)):
             tbl[(i, j)].set_facecolor("#fafafa" if i % 2 else "#ffffff")
 
-    # Plain-language reading
+    # Diagnostic trouble codes + plain-language reading
     ax_note = fig.add_subplot(gs[17:, 0])
     ax_note.axis("off")
-    ax_note.text(0.0, 1.0, "Plain-language reading", fontsize=12, fontweight="bold",
+    y = 1.0
+    if dtcs:
+        ax_note.text(0.0, y, "Diagnostic Trouble Codes — stored", fontsize=12,
+                     fontweight="bold", color="#C8102E")
+        y -= 0.15
+        for code in dtcs:
+            ax_note.text(0.02, y, f"⚠  {code}  —  {describe_dtc(code)}",
+                         fontsize=10, color="#1a1a1a", fontweight="bold")
+            y -= 0.13
+    else:
+        ax_note.text(0.0, y, "Diagnostic Trouble Codes", fontsize=12,
+                     fontweight="bold", color="#1a1a1a")
+        y -= 0.15
+        ax_note.text(0.02, y, "✓  No stored DTCs in this capture.",
+                     fontsize=10, color="#2e7d32")
+        y -= 0.13
+
+    y -= 0.04
+    ax_note.text(0.0, y, "Plain-language reading", fontsize=12, fontweight="bold",
                  color="#1a1a1a")
+    y -= 0.13
     rpm = by_signal.get("obd.rpm", [])
     cool = by_signal.get("obd.coolant_temp", [])
     notes = []
@@ -152,23 +209,24 @@ def title_page(pdf: PdfPages, data: dict, source_db: str):
         nonzero = [v for v in rpm if v > 0]
         if nonzero:
             notes.append(
-                f"Idle RPM averaged {sum(nonzero)/len(nonzero):.0f} rpm — within normal warm-idle range."
-            )
-        zeros = sum(1 for v in rpm if v == 0)
-        if zeros:
-            notes.append(
-                f"RPM returned to 0 on {zeros} samples — engine was shut off before the binary stopped."
+                f"RPM ranged {min(nonzero):.0f}–{max(nonzero):.0f} rpm (mean {sum(nonzero)/len(nonzero):.0f})."
             )
     if cool:
         notes.append(
-            f"Coolant held {min(cool):.0f}–{max(cool):.0f} °C — warm operating temperature, no overshoot."
+            f"Coolant held {min(cool):.0f}–{max(cool):.0f} °C."
         )
     speed = by_signal.get("obd.speed", [])
     if speed and max(speed) == 0:
         notes.append("Vehicle was stationary throughout — speed never left 0 km/h.")
-    for i, line in enumerate(notes):
-        ax_note.text(0.0, 0.7 - i * 0.16, f"• {line}", fontsize=10, color="#333",
-                     wrap=True)
+    batt = by_signal.get("obd.battery_v", [])
+    if batt:
+        notes.append(
+            f"Control-module voltage {min(batt):.2f}–{max(batt):.2f} V "
+            "(charging system)."
+        )
+    for line in notes:
+        ax_note.text(0.0, y, f"• {line}", fontsize=10, color="#333", wrap=True)
+        y -= 0.12
 
     fig.text(0.5, 0.02, "Knight Rider · Tarimica Chiwara · 2026",
              ha="center", fontsize=8, color="#888")
@@ -329,10 +387,10 @@ def main():
 
         # Metadata embedded in the PDF itself
         d = pdf.infodict()
-        d["Title"]    = "KnightRider Field-Capture Report — Toyota Vitz"
+        d["Title"]    = "KnightRider Field-Capture Report"
         d["Author"]   = "Tarimica Chiwara"
-        d["Subject"]  = "OBD-II telemetry decoded from a 12-minute Toyota Vitz idle session"
-        d["Keywords"] = "knight-rider, OBD-II, CAN-bus, Toyota Vitz, NSP130"
+        d["Subject"]  = "Decoded OBD-II + CAN telemetry capture"
+        d["Keywords"] = "knight-rider, OBD-II, CAN-bus, DTC, telemetry"
 
     print(f"wrote {pdf_path}  ({pdf_path.stat().st_size/1024:.1f} KB)")
 
