@@ -241,6 +241,20 @@ tests, all passing.
   Live brake key fixed to `dbc.toyota.BRAKE.pressed`.
   **Not yet visually verified on-device** (logic/analyze/test pass; the 3D
   WebView render needs eyeballing — the golden only shows the non-WebView parts).
+- ✅ **X-ray in-depth sensor mode** (`038cee0`, v0.11.0+16). Tap X-RAY → body
+  ghosts translucent, ~10 sensor nodes glow at anatomical positions (engine,
+  intake, coolant, battery, exhaust/cat, fuel, speed, brake, doors, ambient),
+  colour-coded live/available/fault (exhaust node → red on P0420). Tap a node →
+  `_SensorSheet` with its live signal values + location + fault. `sensor_map.dart`
+  is vehicle-independent (positions normalised to the GLB bounding box; per-car
+  `frontZ` for orientation). `<model-viewer>` hotspots via `innerModelViewerHtml`
+  + `relatedCss`; krPlace from bbox; krApply ghosts via material
+  snapshot/restore. **Recenter** button added (resets orbit/zoom).
+  **NEEDS ON-DEVICE TUNING:** hotspot positions + `frontZ` sign per car, and the
+  ghost alpha (0.18) — all guessed; must be eyeballed/iterated on a phone.
+- **Next (per user):** add Mercedes models (GLE / G-Wagon / E-Class) — must be
+  colored CC-BY; **cloud-deliver them on demand** (downloadable in-app) rather
+  than bundling, to keep the APK lean. Search + confirm licenses first.
 - **Cloud API unchanged** — confirmed.
 
 ### ✅ DONE 2026-05-29 — Axio field session (was items 1 & 2)
