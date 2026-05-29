@@ -65,12 +65,16 @@ class WsClient {
       _scheduleReconnect();
       return;
     }
-    // Optimistic — actual handshake happens async; if it fails, onError fires.
-    _setState(WsState.connected);
+    // Stay in `connecting` until a real frame arrives. The handshake is async
+    // and may fail (bad host, no server) — marking connected optimistically
+    // here made the status pill flap LIVE↔OFFLINE every reconnect cycle.
 
     _sub = _channel!.stream.listen(
       (data) {
         // First successful frame proves the channel is genuinely up.
+        if (_currentState != WsState.connected) {
+          _setState(WsState.connected);
+        }
         _lastError = null;
         try {
           final json = jsonDecode(data as String) as Map<String, dynamic>;

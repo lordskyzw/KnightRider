@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import 'app_theme.dart';
 import 'backlog_db.dart';
 import 'batches_screen.dart';
 import 'build_info.dart';
@@ -15,20 +16,10 @@ import 'settings_screen.dart';
 import 'uploader.dart';
 import 'ws_client.dart';
 
-// ─── Tesla-inspired palette ─────────────────────────────────────────────────
-class _T {
-  static const bg        = Color(0xFF0A0A0B);
-  static const surface   = Color(0xFF16171A);
-  static const surface2  = Color(0xFF1F2024);
-  static const textHi    = Color(0xFFF0F0F2);
-  static const textMid   = Color(0xFF8E8E92);
-  static const textLow   = Color(0xFF5A5A5E);
-  static const divider   = Color(0xFF2A2B2F);
-  static const accent    = Color(0xFFC8102E);   // KnightRider red
-  static const live      = Color(0xFF34C759);
-  static const warning   = Color(0xFFFF9F0A);
-  static const cool      = Color(0xFF64D2FF);
-}
+// Tesla-inspired palette now lives in app_theme.dart (shared app-wide). `_T`
+// stays as a short alias so the dashboard's many references are untouched;
+// `_T.accent` is the user-customisable colour.
+typedef _T = AppPalette;
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -66,6 +57,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   StreamSubscription<Sample>? _sampleSub;
   StreamSubscription<WsState>? _stateSub;
 
+  // Samples can arrive at 40+ Hz. Rather than setState per sample (which
+  // rebuilds the whole dashboard, incl. the 3D WebView's parent, and causes
+  // jank), we coalesce into the latest map and repaint at a steady ~12 Hz.
+  Timer? _uiTimer;
+  bool _dirty = false;
+
   @override
   void initState() {
     super.initState();
@@ -89,6 +86,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     await _refreshBacklogCounts();
     _pullTimer = Timer.periodic(const Duration(seconds: 30), (_) => _kickBacklogPull());
+
+    // Coalesced UI repaint: flush at ~12 Hz only when something changed.
+    _uiTimer = Timer.periodic(const Duration(milliseconds: 80), (_) {
+      if (_dirty && mounted) {
+        _dirty = false;
+        setState(() {});
+      }
+    });
   }
 
   void _attachWs() {
@@ -110,13 +115,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _onSample(Sample s) {
-    if (!mounted) return;
-    setState(() {
-      _latest[s.signal] = s;
-      // Session metadata samples carry the string payload in `unit`.
-      if (s.signal == 'session.vin') _vin = s.unit;
-      if (s.signal == 'session.ecu_name') _ecuName = s.unit;
-    });
+    // No setState here — just stash the latest value and mark dirty. The
+    // _uiTimer flushes to a single setState at ~12 Hz (see _boot).
+    _latest[s.signal] = s;
+    // Session metadata samples carry the string payload in `unit`.
+    if (s.signal == 'session.vin') _vin = s.unit;
+    if (s.signal == 'session.ecu_name') _ecuName = s.unit;
+    _dirty = true;
   }
 
   Future<void> _refreshBacklogCounts() async {
@@ -196,6 +201,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _stateSub?.cancel();
     _tickSub?.cancel();
     _pullTimer?.cancel();
+    _uiTimer?.cancel();
     _ws?.dispose();
     _uploader?.dispose();
     super.dispose();
@@ -316,9 +322,11 @@ class _TopStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // `connecting` shows as OFFLINE (same colour) so the pill doesn't flap
+    // colours every reconnect cycle — only a genuine live link turns green.
     final (label, color) = switch (state) {
       WsState.connected => ('LIVE', _T.live),
-      WsState.connecting => ('LINK', _T.warning),
+      WsState.connecting => ('OFFLINE', _T.accent),
       WsState.disconnected => ('OFFLINE', _T.accent),
     };
     return Container(
@@ -493,9 +501,12 @@ class _CarVisualizer extends StatelessWidget {
           Center(child: _RpmGlow(rpm: rpmForPulse, size: carW * 1.6)),
           // Centre: rotatable 3D model (feature flag) or flat SVG silhouette.
           if (use3d)
-            Center(
+            Align(
+              // Lifted slightly to fill the space below the RPM readout and
+              // sized large so the car reads as the centrepiece.
+              alignment: const Alignment(0, -0.10),
               child: SizedBox(
-                width: w * 0.66, height: carH,
+                width: w * 0.88, height: carH * 1.20,
                 child: const CarModel3D(alt: 'Vehicle 3D model'),
               ),
             )
@@ -935,7 +946,7 @@ class _ErrorBanner extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Text(label, style: const TextStyle(
+            Text(label, style: TextStyle(
                 color: _T.accent, fontWeight: FontWeight.w700, fontSize: 11,
                 letterSpacing: 1.5)),
             const SizedBox(width: 8),

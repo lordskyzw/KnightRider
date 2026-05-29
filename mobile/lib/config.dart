@@ -7,6 +7,7 @@ class PiConfig {
   static const _kBacklogCursor = 'backlog_cursor';
   static const _kCloudUrl = 'cloud_url';
   static const _kCar3d = 'car_3d_enabled';
+  static const _kAccent = 'accent_color';
 
   // Matches the Pi's hostname set during the 2026-05-28 field-setup session.
   // mDNS resolves this on any device on the same LAN/hotspot, regardless of
@@ -36,16 +37,27 @@ class PiConfig {
   }
 
   /// Feature flag: render the rotatable 3D car model in the dashboard centre
-  /// instead of the flat SVG silhouette. Off by default — it's a beta polish
-  /// feature behind a Settings toggle, and the SVG is the safe fallback.
+  /// instead of the flat SVG silhouette. On by default; the SVG stays the
+  /// safe fallback (e.g. if the WebView can't render).
   static Future<bool> car3dEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_kCar3d) ?? false;
+    return prefs.getBool(_kCar3d) ?? true;
   }
 
   static Future<void> setCar3dEnabled(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kCar3d, value);
+  }
+
+  /// User-chosen accent colour, stored as an ARGB int. Null means default.
+  static Future<int?> accentColor() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_kAccent);
+  }
+
+  static Future<void> setAccentColor(int argb) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kAccent, argb);
   }
 
   static Future<int> backlogCursor() async {

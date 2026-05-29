@@ -72,9 +72,9 @@ class CarModel3D extends StatelessWidget {
         // 'neutral' is model-viewer's built-in studio HDRI — even, flattering
         // light with real reflections on metallic paint, no external file.
         environmentImage: 'neutral',
-        exposure: 0.85,
-        shadowIntensity: 0.85,
-        shadowSoftness: 0.9,
+        exposure: 1.05,
+        shadowIntensity: 0.7,
+        shadowSoftness: 1.0,
 
         // ── Camera & motion ──────────────────────────────────────────────
         cameraControls: true,
@@ -82,8 +82,8 @@ class CarModel3D extends StatelessWidget {
         autoRotate: true,
         autoRotateDelay: 1200,
         rotationPerSecond: '16deg',
-        // Start at a 3/4 hero angle, pulled back a touch for breathing room.
-        cameraOrbit: '30deg 75deg 110%',
+        // Start at a 3/4 hero angle, framed tight so the car fills the view.
+        cameraOrbit: '28deg 74deg 98%',
         // Keep the camera between a low hero angle and just-above-eye-level,
         // so it never clips through the floor or flips to bird's-eye.
         minCameraOrbit: 'auto 55deg auto',
