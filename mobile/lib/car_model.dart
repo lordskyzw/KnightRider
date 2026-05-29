@@ -145,19 +145,25 @@ class _CarModel3DState extends State<CarModel3D> {
   String _hotspotHtml() => widget.sensorNodes
       .map((n) => '<button class="kr-hot" slot="hotspot-${n.id}" '
           'data-id="${n.id}" data-nx="${n.nx}" data-ny="${n.ny}" '
-          'data-nz="${n.nz}" data-position="0m 0m 0m" data-normal="0 1 0"></button>')
+          'data-nz="${n.nz}" data-position="0m 0m 0m" data-normal="0 1 0">'
+          '<span class="kr-tag">${n.id.toUpperCase()}</span></button>')
       .join();
 
   static const String _relatedCss = '''
-.kr-hot{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.85);
-  background:rgba(255,255,255,.18);cursor:pointer;padding:0;display:none;
-  transition:transform .15s ease;}
+.kr-hot{position:relative;width:15px;height:15px;border-radius:50%;
+  border:2px solid rgba(255,255,255,.85);background:rgba(255,255,255,.18);
+  cursor:pointer;padding:0;display:none;transition:transform .15s ease;}
 .kr-hot:hover{transform:scale(1.3);}
 .kr-hot.live{border-color:#22c55e;background:#22c55e;
   box-shadow:0 0 12px 3px rgba(34,197,94,.8);animation:krpulse 1.6s infinite;}
 .kr-hot.available{border-color:#9aa0aa;background:rgba(154,160,170,.4);}
 .kr-hot.fault{border-color:#ef4444;background:#ef4444;
   box-shadow:0 0 14px 4px rgba(239,68,68,.85);animation:krpulse .9s infinite;}
+.kr-tag{position:absolute;left:19px;top:50%;transform:translateY(-50%);
+  white-space:nowrap;font-family:sans-serif;font-size:8px;font-weight:700;
+  letter-spacing:1px;color:rgba(255,255,255,.92);background:rgba(0,0,0,.5);
+  padding:2px 5px;border-radius:4px;pointer-events:none;}
+.kr-hot.fault .kr-tag{color:#ffd9d6;}
 @keyframes krpulse{0%,100%{opacity:1}50%{opacity:.4}}
 ''';
 
@@ -204,7 +210,7 @@ window.krApply = function() {
     try {
       if (dep) {
         // Ghost everything translucent; sensor hotspots float "inside".
-        const a = 0.18; const base = rgb ? rgb : (o ? o.bcf : [1,1,1]);
+        const a = 0.25; const base = rgb ? rgb : (o ? o.bcf : [1,1,1]);
         m.setAlphaMode('BLEND');
         m.pbrMetallicRoughness.setBaseColorFactor([base[0], base[1], base[2], a]);
         m.setEmissiveFactor([0,0,0]);
@@ -235,7 +241,7 @@ window.krApply = function() {
 window.krRecenter = function() {
   try {
     mv.cameraTarget = 'auto auto auto';
-    mv.cameraOrbit = '28deg 72deg 115%';
+    mv.cameraOrbit = '28deg 72deg 130%';
     mv.fieldOfView = '30deg';
     if (mv.jumpCameraToGoal) mv.jumpCameraToGoal();
   } catch (e) {}
@@ -354,11 +360,13 @@ window.krApply();
       autoRotate: widget.autoRotate,
       autoRotateDelay: 0,
       rotationPerSecond: '14deg',
-      // Pulled back (115%) so the car keeps a comfortable margin at every
-      // rotation angle, not just top-down. Recenter returns here.
-      cameraOrbit: '28deg 72deg 115%',
-      minCameraOrbit: 'auto 40deg 85%',
-      maxCameraOrbit: 'auto 90deg 220%',
+      // Pulled back to 130% so the auto-rotate turntable never drifts the car
+      // out of frame. Min radius 100% caps zoom-in (can't overflow); elevation
+      // can drop below the car (down to -15°) to inspect the underbody nodes
+      // (exhaust/catalyst). Recenter returns to this framing.
+      cameraOrbit: '28deg 72deg 130%',
+      minCameraOrbit: 'auto -15deg 100%',
+      maxCameraOrbit: 'auto 95deg 260%',
       fieldOfView: '30deg',
       interpolationDecay: 220,
 
