@@ -230,7 +230,17 @@ tests, all passing.
   "lights" is one group; no separable tail/turn/reverse. **Not yet visually
   verified on-device** (logic + analyze + test pass; the 3D WebView render
   should be eyeballed on a phone/emulator).
-- **General advancements / polish** — still TBD with user.
+- ✅ **"Reduce" dashboard redesign** (`a356ad5`, v0.10.0+15). Direction-A
+  (Ive/Tesla-calm): car is the hero (3D by default, `Positioned.fill`; SVG only
+  a fallback). Minimal top bar (status + gear; host/VIN/version → Settings). One
+  adaptive numeral (SPEED moving / RPM idling, dims when no live data). One quiet
+  stat row (coolant·battery·fuel·intake) replacing corner pods. Thin status line
+  (synced·DTC·•••) replacing the tab strip. **Auto-rotate** showroom turntable,
+  ON by default + Settings toggle. Removed _CornerPod/_MetricBar/_BottomStrip
+  (net −217 lines). `debugDisableCarWebView` test seam keeps the boot test green.
+  Live brake key fixed to `dbc.toyota.BRAKE.pressed`.
+  **Not yet visually verified on-device** (logic/analyze/test pass; the 3D
+  WebView render needs eyeballing — the golden only shows the non-WebView parts).
 - **Cloud API unchanged** — confirmed.
 
 ### ✅ DONE 2026-05-29 — Axio field session (was items 1 & 2)
