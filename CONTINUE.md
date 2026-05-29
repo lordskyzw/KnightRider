@@ -203,16 +203,19 @@ tests, all passing.
   animated doors). Filament would fix all three but is a bigger integration.
   See `docs/SCALING.md` "3D model load time" + "live model state".
 
-### 0b. App polish — next major thrust (user flagged 2026-05-29, do AFTER Rust side)
-- **Online/offline toast bug:** "unexplainable behaviour" in the connectivity
-  toast (false/flapping online/offline). Investigate `ws_client` + connectivity
-  state derivation. User's top app complaint.
-- **Per-car 3D models:** need distinct GLBs for the cars we actually have (Vitz +
-  Toyota Axio E160 at least), chosen via an in-app **car picker** — VIN
-  auto-detect is NOT viable (see [[obd-vehicle-id-constraint]]; VIN not OBD-
-  readable on Axio/Honda). App currently ships the Vitz GLB only.
-- General advancements / polish (TBD with user).
-- **Cloud API unchanged** — user confirmed no API changes for this thrust.
+### 0b. App polish (started 2026-05-29, v0.9.0+12)
+- ✅ **Online/offline status fixed** (`13b9b93`). The ambiguous "LIVE" (which
+  could show on stale data) is now an honest data-driven 3-state:
+  OFFLINE (no socket) / LINKED (socket open, no fresh sample in 3 s) /
+  LIVE (telemetry flowing). `ws_client` CONNECTED now fires on
+  `WebSocketChannel.ready`; dashboard tracks `_lastSampleAt`. LIVE ⟺ real RPMs.
+- ✅ **Per-car 3D models + Settings car picker** (`b2abbb7`).
+  `vehicle_catalog.dart` (Vitz w/ GLB, Axio E160 entry w/o GLB yet); user picks
+  in Settings (VIN can't auto-pick — [[obd-vehicle-id-constraint]]).
+  **TODO: source a CC-BY `assets/cars/axio.glb`** (licensing-sensitive, see
+  [[car-3d-model-decision]]) and set `glbAsset` in the catalog → drop-in.
+- **General advancements / polish** — still TBD with user.
+- **Cloud API unchanged** — confirmed.
 
 ### ✅ DONE 2026-05-29 — Axio field session (was items 1 & 2)
 - **Extended binary field-tested on a Toyota Corolla Axio E160.** Standard OBD-II
