@@ -1,0 +1,16 @@
+# Heavy / regenerable capture artifacts stay out of git; the analysis scripts,
+# decoded summaries, and the reverse-engineering evidence (axio-re-*/) stay
+# tracked. Raw buffers and full exports can be re-decoded from the Pi snapshot
+# with decode_buffer.py / generate_report.py.
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.json
+*.csv
+*.pdf
+emu_*.png
+
+# ...but keep the Axio reverse-engineering candump evidence. These are raw
+# field captures (the car is gone — not reproducible) and back FINDINGS.md.
+# Overrides the root .gitignore's global *.log rule.
+!axio-re-20260529/*.log

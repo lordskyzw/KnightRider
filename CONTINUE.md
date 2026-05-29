@@ -197,12 +197,22 @@ tests, all passing.
 - **App side (next):** dashboard should consume `dbc.toyota.BRAKE.pressed` /
   `.DOORS.driver` and drive `CarModel3D` brake-light + door live via
   `runJavaScript` (NOT key-reload — that re-triggers the 30s warm-up).
-- **Renderer decision:** still open — Filament (`thermion`) vs `model_viewer_plus`.
 - **Renderer decision:** evaluate native Filament (`thermion`) vs the current
   `model_viewer_plus` WebView. WebView costs the cold-start delay, no bloom (so
   lamps look "full-bright" not glowing), and can't transform nodes (blocks
   animated doors). Filament would fix all three but is a bigger integration.
   See `docs/SCALING.md` "3D model load time" + "live model state".
+
+### 0b. App polish — next major thrust (user flagged 2026-05-29, do AFTER Rust side)
+- **Online/offline toast bug:** "unexplainable behaviour" in the connectivity
+  toast (false/flapping online/offline). Investigate `ws_client` + connectivity
+  state derivation. User's top app complaint.
+- **Per-car 3D models:** need distinct GLBs for the cars we actually have (Vitz +
+  Toyota Axio E160 at least), chosen via an in-app **car picker** — VIN
+  auto-detect is NOT viable (see [[obd-vehicle-id-constraint]]; VIN not OBD-
+  readable on Axio/Honda). App currently ships the Vitz GLB only.
+- General advancements / polish (TBD with user).
+- **Cloud API unchanged** — user confirmed no API changes for this thrust.
 
 ### ✅ DONE 2026-05-29 — Axio field session (was items 1 & 2)
 - **Extended binary field-tested on a Toyota Corolla Axio E160.** Standard OBD-II
