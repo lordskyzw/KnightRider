@@ -8,6 +8,7 @@ class PiConfig {
   static const _kCloudUrl = 'cloud_url';
   static const _kCar3d = 'car_3d_enabled';
   static const _kAccent = 'accent_color';
+  static const _kCarColor = 'car_color';
 
   // Matches the Pi's hostname set during the 2026-05-28 field-setup session.
   // mDNS resolves this on any device on the same LAN/hotspot, regardless of
@@ -58,6 +59,21 @@ class PiConfig {
   static Future<void> setAccentColor(int argb) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kAccent, argb);
+  }
+
+  /// Car paint tint as an ARGB int; null = factory finish.
+  static Future<int?> carColor() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_kCarColor);
+  }
+
+  static Future<void> setCarColor(int? argb) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (argb == null) {
+      await prefs.remove(_kCarColor);
+    } else {
+      await prefs.setInt(_kCarColor, argb);
+    }
   }
 
   static Future<int> backlogCursor() async {

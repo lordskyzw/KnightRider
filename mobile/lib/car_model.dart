@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 
@@ -15,86 +17,103 @@ const String kVehicleModelAsset = 'assets/cars/vitz.glb';
 /// https://sketchfab.com/3d-models/toyota-vitz-0d1428782a5f4cf69efd8a15744e1d49
 const String kVehicleModelCredit = 'Vitz by Driving501 · CC BY 4.0';
 
-/// Tesla-dark background so the model sits seamlessly in the dashboard.
-const Color _kStage = Color(0xFF0A0A0B);
-
-/// A rotatable, photoreal-ish 3D vehicle model rendered with Google's
-/// `<model-viewer>` (PBR + image-based lighting) inside a WebView.
+/// A rotatable 3D vehicle model rendered with Google's `<model-viewer>`
+/// (PBR + image-based lighting) inside a transparent WebView, so it floats on
+/// the dashboard with the RPM glow showing through behind it.
 ///
-/// Quality knobs are deliberately tuned for a showroom look: a neutral studio
-/// HDRI for clean reflections, soft contact shadows, a slightly low exposure
-/// so highlights on car paint don't blow out, and a constrained orbit so the
-/// camera can't dip below the floor or spin to an unflattering top-down angle.
+/// [tint] recolours the car: model-viewer multiplies each material's base
+/// colour by it, which reads as real paint because the stock body is neutral
+/// silver (silver × red → red) while dark glass/wheels stay dark. `null` keeps
+/// the factory finish.
 class CarModel3D extends StatelessWidget {
   final String src;
   final String alt;
+  final Color? tint;
 
   const CarModel3D({
     super.key,
     this.src = kVehicleModelAsset,
     this.alt = 'Vehicle 3D model',
+    this.tint,
   });
+
+  /// JS injected after the model loads to multiply every material's base
+  /// colour by [tint]. sRGB→linear converted so the paint reads true.
+  String? _tintJs() {
+    final t = tint;
+    if (t == null) return null;
+    double lin(double s) =>
+        s <= 0.04045 ? s / 12.92 : math.pow((s + 0.055) / 1.055, 2.4).toDouble();
+    final r = lin(t.r), g = lin(t.g), b = lin(t.b);
+    return '''
+const mv = document.querySelector('model-viewer');
+function applyTint() {
+  if (!mv || !mv.model) return;
+  const c = [$r, $g, $b, 1];
+  for (const m of mv.model.materials) {
+    try { m.pbrMetallicRoughness.setBaseColorFactor(c); } catch (e) {}
+  }
+}
+mv.addEventListener('load', applyTint);
+applyTint();
+''';
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: _kStage,
-      child: Stack(
-        children: [
-          Positioned.fill(child: _viewer()),
-          // CC-BY attribution — must remain visible while the model shows.
-          Positioned(
-            left: 8,
-            bottom: 6,
-            child: Text(
-              kVehicleModelCredit,
-              style: const TextStyle(
-                fontSize: 9,
-                color: Color(0xFF5A5A5E),
-                letterSpacing: 0.2,
-              ),
+    return Stack(
+      children: [
+        Positioned.fill(child: _viewer()),
+        // CC-BY attribution — must remain visible while the model shows.
+        Positioned(
+          left: 8,
+          bottom: 6,
+          child: Text(
+            kVehicleModelCredit,
+            style: const TextStyle(
+              fontSize: 9,
+              color: Color(0xFF5A5A5E),
+              letterSpacing: 0.2,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   Widget _viewer() {
     return ModelViewer(
-        // Re-create the viewer if the asset ever changes (per-vehicle swap).
-        key: ValueKey(src),
-        src: src,
-        alt: alt,
-        backgroundColor: _kStage,
+      // Re-create the viewer when the asset OR tint changes so the new paint
+      // is applied from a clean load.
+      key: ValueKey('$src|${tint?.toARGB32()}'),
+      src: src,
+      alt: alt,
+      // Transparent: no opaque rectangle "framing" the car — the dashboard
+      // and RPM glow show through behind it.
+      backgroundColor: Colors.transparent,
+      relatedJs: _tintJs(),
 
-        // ── Lighting & material quality ──────────────────────────────────
-        // 'neutral' is model-viewer's built-in studio HDRI — even, flattering
-        // light with real reflections on metallic paint, no external file.
-        environmentImage: 'neutral',
-        exposure: 1.05,
-        shadowIntensity: 0.7,
-        shadowSoftness: 1.0,
+      // ── Lighting & material quality ──────────────────────────────────
+      environmentImage: 'neutral',
+      exposure: 1.05,
+      shadowIntensity: 0.7,
+      shadowSoftness: 1.0,
 
-        // ── Camera & motion ──────────────────────────────────────────────
-        cameraControls: true,
-        disableZoom: false,
-        autoRotate: true,
-        autoRotateDelay: 1200,
-        rotationPerSecond: '16deg',
-        // Start at a 3/4 hero angle, framed tight so the car fills the view.
-        cameraOrbit: '28deg 74deg 98%',
-        // Keep the camera between a low hero angle and just-above-eye-level,
-        // so it never clips through the floor or flips to bird's-eye.
-        minCameraOrbit: 'auto 55deg auto',
-        maxCameraOrbit: 'auto 88deg auto',
-        fieldOfView: '30deg',
-        interpolationDecay: 220,
+      // ── Camera & motion ──────────────────────────────────────────────
+      // No auto-rotate — the car holds the hero angle and the user can still
+      // drag to orbit it manually (cameraControls).
+      cameraControls: true,
+      disableZoom: false,
+      autoRotate: false,
+      cameraOrbit: '28deg 74deg 98%',
+      minCameraOrbit: 'auto 55deg auto',
+      maxCameraOrbit: 'auto 88deg auto',
+      fieldOfView: '30deg',
+      interpolationDecay: 220,
 
-        // No AR in the prototype; no swipe-hand prompt over the auto-rotate.
-        ar: false,
-        interactionPrompt: InteractionPrompt.none,
-        loading: Loading.eager,
+      ar: false,
+      interactionPrompt: InteractionPrompt.none,
+      loading: Loading.eager,
     );
   }
 }

@@ -16,6 +16,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loaded = false;
   bool _car3d = true;
   Color _accent = AppPalette.accent;
+  Color? _carColor; // null = factory paint
 
   @override
   void initState() {
@@ -27,10 +28,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final host = await PiConfig.host();
     final cloud = await PiConfig.cloudUrl();
     final car3d = await PiConfig.car3dEnabled();
+    final carColorArgb = await PiConfig.carColor();
     setState(() {
       _hostCtrl.text = host;
       _cloudCtrl.text = cloud;
       _car3d = car3d;
+      _carColor = carColorArgb == null ? null : Color(carColorArgb);
       _accent = AppPalette.accent;
       _loaded = true;
     });
@@ -58,6 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await PiConfig.setCloudUrl(cloud);
     await PiConfig.setCar3dEnabled(_car3d);
     await PiConfig.setAccentColor(_accent.toARGB32());
+    await PiConfig.setCarColor(_carColor?.toARGB32());
     if (!mounted) return;
     Navigator.of(context).pop(true);
   }
@@ -114,6 +118,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 const Divider(color: AppPalette.divider),
                 const SizedBox(height: 12),
+                const _Label('CAR COLOUR'),
+                const SizedBox(height: 4),
+                const Text(
+                  'Repaints the 3D car. Factory keeps the original silver.',
+                  style: TextStyle(fontSize: 12, color: AppPalette.textMid),
+                ),
+                const SizedBox(height: 14),
+                _CarColorRow(
+                  selected: _carColor,
+                  onPick: (c) => setState(() => _carColor = c),
+                ),
+                const SizedBox(height: 24),
+                const Divider(color: AppPalette.divider),
+                const SizedBox(height: 12),
                 const _Label('ACCENT COLOUR'),
                 const SizedBox(height: 4),
                 const Text(
@@ -148,6 +166,61 @@ class _Label extends StatelessWidget {
           fontWeight: FontWeight.w700,
           letterSpacing: 2,
         ));
+  }
+}
+
+class _CarColorRow extends StatelessWidget {
+  final Color? selected;
+  final ValueChanged<Color?> onPick;
+  const _CarColorRow({required this.selected, required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 14,
+      runSpacing: 14,
+      children: [
+        for (final opt in kCarColorOptions)
+          () {
+            final isFactory = opt.tint == null;
+            // Factory shows as silver (matches the stock model).
+            final swatch = opt.tint ?? const Color(0xFFC4C6CA);
+            final isSel = selected?.toARGB32() == opt.tint?.toARGB32();
+            return GestureDetector(
+              onTap: () => onPick(opt.tint),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: swatch,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isSel ? AppPalette.textHi : Colors.transparent,
+                        width: 3,
+                      ),
+                    ),
+                    child: isFactory
+                        ? const Icon(Icons.directions_car,
+                            size: 20, color: Color(0xFF3A3B3F))
+                        : null,
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: 56,
+                    child: Text(opt.name,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            fontSize: 9, color: AppPalette.textMid)),
+                  ),
+                ],
+              ),
+            );
+          }(),
+      ],
+    );
   }
 }
 

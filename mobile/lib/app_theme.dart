@@ -41,6 +41,26 @@ const List<AccentOption> kAccentOptions = [
   AccentOption('Ion Blue', Color(0xFF0A84FF)),
 ];
 
+/// A selectable car paint. [tint] of null keeps the model's factory finish;
+/// any other colour is multiplied over the (neutral silver) body.
+class CarColorOption {
+  final String name;
+  final Color? tint;
+  const CarColorOption(this.name, this.tint);
+}
+
+/// Paint choices offered in Settings. First is the original silver.
+const List<CarColorOption> kCarColorOptions = [
+  CarColorOption('Factory', null),
+  CarColorOption('Race Red', Color(0xFFD0021B)),
+  CarColorOption('Midnight', Color(0xFF1B2A4A)),
+  CarColorOption('Racing Green', Color(0xFF1F6B3B)),
+  CarColorOption('Sunset', Color(0xFFFF6A00)),
+  CarColorOption('Mamba', Color(0xFFF5C518)),
+  CarColorOption('Pearl', Color(0xFFEDEDED)),
+  CarColorOption('Graphite', Color(0xFF3A3D42)),
+];
+
 /// Builds the global dark theme from the current [AppPalette.accent].
 ThemeData buildAppTheme() {
   final scheme = ColorScheme.fromSeed(

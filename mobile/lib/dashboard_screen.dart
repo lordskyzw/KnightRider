@@ -41,6 +41,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _ecuName;    // captured from session.ecu_name
   String _buildLabel = '';
   bool _car3d = false; // feature flag: 3D model vs SVG silhouette
+  Color? _carColor;    // null = factory paint
 
   // Backlog + uploader state
   final _db = BacklogDb();
@@ -74,6 +75,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _cloudUrl = await PiConfig.cloudUrl();
     _buildLabel = await BuildInfo.displayVersion();
     _car3d = await PiConfig.car3dEnabled();
+    final carColorArgb = await PiConfig.carColor();
+    _carColor = carColorArgb == null ? null : Color(carColorArgb);
     _attachWs();
 
     _uploader = Uploader(db: _db, cloudUrlProvider: () => _cloudUrl);
@@ -169,7 +172,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _host = await PiConfig.host();
       _cloudUrl = await PiConfig.cloudUrl();
       final car3d = await PiConfig.car3dEnabled();
-      if (mounted) setState(() => _car3d = car3d);
+      final carColorArgb = await PiConfig.carColor();
+      if (mounted) {
+        setState(() {
+          _car3d = car3d;
+          _carColor = carColorArgb == null ? null : Color(carColorArgb);
+        });
+      }
       _attachWs();
     }
   }
@@ -257,6 +266,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         fuelPct: fuel,
                         rpmForPulse: liveRpm,
                         use3d: _car3d,
+                        carColor: _carColor,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -479,6 +489,7 @@ class _CarVisualizer extends StatelessWidget {
   final double? fuelPct;
   final double rpmForPulse;
   final bool use3d;
+  final Color? carColor;
   const _CarVisualizer({
     required this.coolantC,
     required this.intakeC,
@@ -486,6 +497,7 @@ class _CarVisualizer extends StatelessWidget {
     required this.fuelPct,
     required this.rpmForPulse,
     this.use3d = false,
+    this.carColor,
   });
 
   @override
@@ -507,7 +519,7 @@ class _CarVisualizer extends StatelessWidget {
               alignment: const Alignment(0, -0.10),
               child: SizedBox(
                 width: w * 0.88, height: carH * 1.20,
-                child: const CarModel3D(alt: 'Vehicle 3D model'),
+                child: CarModel3D(alt: 'Vehicle 3D model', tint: carColor),
               ),
             )
           else
