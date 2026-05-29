@@ -51,6 +51,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _car3d = true; // 3D model by default (silhouette only as fallback)
   bool _autoRotate = true; // showroom turntable
   bool _inDepth = false; // X-ray sensor mode
+  bool _chromeHidden = false; // tap-to-hide chrome when idle (give car space)
   VehicleModel _vehicle = vehicleById(null); // which car's model to render
   Color? _carColor;    // null = factory paint
   Color _wheelColor = const Color(0xFF0A0A0A); // default black
@@ -253,6 +254,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return 'available';
   }
 
+  /// Plain tap on the car: when there's no live data, toggle the chrome
+  /// (top bar, numeral, stat row, status line) to give the car more room —
+  /// like a chat collapsing its bars. When live, chrome always stays.
+  void _onCarTap() {
+    if (_linkStatus == LinkStatus.live) return;
+    setState(() => _chromeHidden = !_chromeHidden);
+  }
+
   void _openSensor(String id) {
     final node = kSensorNodes.firstWhere((n) => n.id == id,
         orElse: () => kSensorNodes.first);
@@ -327,14 +336,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final dbcRpm = _v('dbc.toyota.POWERTRAIN.engine_rpm');
     final liveRpm = (dbcRpm != null && dbcRpm > 0) ? dbcRpm : rpm;
     final live = _linkStatus == LinkStatus.live;
+    // When live we always show everything; when idle, a tap can hide the
+    // chrome to give the car the whole screen.
+    final showChrome = live || !_chromeHidden;
 
     return Scaffold(
       backgroundColor: _T.bg,
       body: SafeArea(
         child: Column(
           children: [
-            _TopStatusBar(status: _linkStatus, onSettings: _openSettings),
-            if (_linkStatus == LinkStatus.offline && _wsError != null)
+            if (showChrome)
+              _TopStatusBar(status: _linkStatus, onSettings: _openSettings),
+            if (showChrome &&
+                _linkStatus == LinkStatus.offline &&
+                _wsError != null)
               _ErrorBanner(detail: _wsError!),
             // The car is the hero — it gets the lion's share of the screen.
             Expanded(
@@ -352,34 +367,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   for (final n in kSensorNodes) n.id: _sensorStatus(n),
                 },
                 onHotspotTap: _openSensor,
+                onTap: _onCarTap,
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
-              child: Column(
-                children: [
-                  // One adaptive numeral: speed when moving, RPM when idling.
-                  _HeroMetric(rpm: liveRpm, speedKmh: speed, isLive: live),
-                  const SizedBox(height: 18),
-                  // One quiet row of secondary stats — no boxes.
-                  _StatRow(
-                    coolant: coolant, battery: battery,
-                    fuel: fuel, intake: intake, live: live,
-                  ),
-                  const SizedBox(height: 16),
-                  _ThinStatus(
-                    total: _backlogTotal,
-                    pending: _backlogPending,
-                    uploaded: _backlogUploaded,
-                    lastTick: _lastTick,
-                    dtcCount: dtcCount,
-                    onSync: () => _openBatches(BatchFilter.all),
-                    onDtc: _openDtc,
-                    onMore: _openMore,
-                  ),
-                ],
+            if (showChrome)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
+                child: Column(
+                  children: [
+                    // One adaptive numeral: speed when moving, RPM when idling.
+                    _HeroMetric(rpm: liveRpm, speedKmh: speed, isLive: live),
+                    const SizedBox(height: 18),
+                    // One quiet row of secondary stats — no boxes.
+                    _StatRow(
+                      coolant: coolant, battery: battery,
+                      fuel: fuel, intake: intake, live: live,
+                    ),
+                    const SizedBox(height: 16),
+                    _ThinStatus(
+                      total: _backlogTotal,
+                      pending: _backlogPending,
+                      uploaded: _backlogUploaded,
+                      lastTick: _lastTick,
+                      dtcCount: dtcCount,
+                      onSync: () => _openBatches(BatchFilter.all),
+                      onDtc: _openDtc,
+                      onMore: _openMore,
+                    ),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -520,12 +537,14 @@ class _CarVisualizer extends StatelessWidget {
   final VoidCallback onToggleDepth;
   final Map<String, String> sensorStatus;
   final void Function(String id) onHotspotTap;
+  final VoidCallback onTap;
   const _CarVisualizer({
     required this.rpmForPulse,
     required this.vehicle,
     required this.onToggleDepth,
     required this.sensorStatus,
     required this.onHotspotTap,
+    required this.onTap,
     this.use3d = false,
     this.autoRotate = true,
     this.inDepth = false,
@@ -559,6 +578,7 @@ class _CarVisualizer extends StatelessWidget {
                 inDepth: inDepth,
                 sensorStatus: sensorStatus,
                 onHotspotTap: onHotspotTap,
+                onTap: onTap,
                 bodyColor: carColor,
                 wheelColor: wheelColor,
                 lamps: lamps,

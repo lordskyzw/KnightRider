@@ -86,7 +86,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(
+        title: const Text('Settings'),
+        actions: [
+          if (_loaded)
+            TextButton(
+              onPressed: _save,
+              child: const Text('Save',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+        ],
+      ),
       body: !_loaded
           ? const Center(child: CircularProgressIndicator())
           : ListView(

@@ -83,6 +83,8 @@ class CarModel3D extends StatefulWidget {
   final double frontZ;
   /// Tapped a sensor hotspot (passes the node id).
   final void Function(String id)? onHotspotTap;
+  /// Plain tap on the car (not a hotspot) — used to toggle the dashboard chrome.
+  final VoidCallback? onTap;
   final Color? bodyColor;
   final Color wheelColor;
   final LampState lamps;
@@ -99,6 +101,7 @@ class CarModel3D extends StatefulWidget {
     this.sensorStatus = const {},
     this.frontZ = 1.0,
     this.onHotspotTap,
+    this.onTap,
     this.bodyColor,
     this.wheelColor = const Color(0xFF000000),
     this.lamps = const LampState(),
@@ -111,6 +114,19 @@ class CarModel3D extends StatefulWidget {
 class _CarModel3DState extends State<CarModel3D> {
   WebViewController? _controller;
   bool _ready = false;
+  int _zoom = 1; // preset zoom level: 1x / 2x / 3x
+
+  // Radius % per zoom level. Auto-rotate is only allowed at 1x.
+  static const Map<int, double> _zoomRadius = {1: 130, 2: 90, 3: 62};
+  bool get _autoRotateEffective => widget.autoRotate && _zoom == 1;
+
+  void _setZoom(int z) {
+    if (z == _zoom) return;
+    setState(() => _zoom = z);
+    final rotate = widget.autoRotate && z == 1;
+    _controller?.runJavaScript(
+        'window.krZoom&&window.krZoom(${_zoomRadius[z]}, $rotate);');
+  }
 
   static double _lin(double s) =>
       s <= 0.04045 ? s / 12.92 : math.pow((s + 0.055) / 1.055, 2.4).toDouble();
@@ -146,20 +162,24 @@ class _CarModel3DState extends State<CarModel3D> {
       .map((n) => '<button class="kr-hot" slot="hotspot-${n.id}" '
           'data-id="${n.id}" data-nx="${n.nx}" data-ny="${n.ny}" '
           'data-nz="${n.nz}" data-position="0m 0m 0m" data-normal="0 1 0">'
+          '<span class="kr-dot"></span>'
           '<span class="kr-tag">${n.id.toUpperCase()}</span></button>')
       .join();
 
+  // The button is a large transparent tap target (36px) so nodes are easy to
+  // hit; the visible dot inside stays small. Status colours the dot.
   static const String _relatedCss = '''
-.kr-hot{position:relative;width:15px;height:15px;border-radius:50%;
-  border:2px solid rgba(255,255,255,.85);background:rgba(255,255,255,.18);
-  cursor:pointer;padding:0;display:none;transition:transform .15s ease;}
-.kr-hot:hover{transform:scale(1.3);}
-.kr-hot.live{border-color:#22c55e;background:#22c55e;
+.kr-hot{position:relative;width:36px;height:36px;border:none;background:transparent;
+  cursor:pointer;padding:0;display:none;align-items:center;justify-content:center;}
+.kr-dot{width:15px;height:15px;border-radius:50%;border:2px solid rgba(255,255,255,.85);
+  background:rgba(255,255,255,.2);transition:transform .15s ease;}
+.kr-hot:active .kr-dot{transform:scale(1.35);}
+.kr-hot.live .kr-dot{border-color:#22c55e;background:#22c55e;
   box-shadow:0 0 12px 3px rgba(34,197,94,.8);animation:krpulse 1.6s infinite;}
-.kr-hot.available{border-color:#9aa0aa;background:rgba(154,160,170,.4);}
-.kr-hot.fault{border-color:#ef4444;background:#ef4444;
+.kr-hot.available .kr-dot{border-color:#9aa0aa;background:rgba(154,160,170,.45);}
+.kr-hot.fault .kr-dot{border-color:#ef4444;background:#ef4444;
   box-shadow:0 0 14px 4px rgba(239,68,68,.85);animation:krpulse .9s infinite;}
-.kr-tag{position:absolute;left:19px;top:50%;transform:translateY(-50%);
+.kr-tag{position:absolute;left:30px;top:50%;transform:translateY(-50%);
   white-space:nowrap;font-family:sans-serif;font-size:8px;font-weight:700;
   letter-spacing:1px;color:rgba(255,255,255,.92);background:rgba(0,0,0,.5);
   padding:2px 5px;border-radius:4px;pointer-events:none;}
@@ -210,7 +230,7 @@ window.krApply = function() {
     try {
       if (dep) {
         // Ghost everything translucent; sensor hotspots float "inside".
-        const a = 0.25; const base = rgb ? rgb : (o ? o.bcf : [1,1,1]);
+        const a = 0.30; const base = rgb ? rgb : (o ? o.bcf : [1,1,1]);
         m.setAlphaMode('BLEND');
         m.pbrMetallicRoughness.setBaseColorFactor([base[0], base[1], base[2], a]);
         m.setEmissiveFactor([0,0,0]);
@@ -238,11 +258,21 @@ window.krApply = function() {
     el.classList.remove('live','available','fault'); el.classList.add(st);
   });
 };
-window.krRecenter = function() {
+window.krRecenter = function(rotate) {
   try {
     mv.cameraTarget = 'auto auto auto';
     mv.cameraOrbit = '28deg 72deg 130%';
     mv.fieldOfView = '30deg';
+    mv.autoRotate = !!rotate;
+    if (mv.jumpCameraToGoal) mv.jumpCameraToGoal();
+  } catch (e) {}
+};
+// Preset zoom: keep the current angle, set the radius %, and toggle rotation.
+window.krZoom = function(pct, rotate) {
+  try {
+    const o = mv.getCameraOrbit();
+    mv.cameraOrbit = o.theta + 'rad ' + o.phi + 'rad ' + pct + '%';
+    mv.autoRotate = rotate;
     if (mv.jumpCameraToGoal) mv.jumpCameraToGoal();
   } catch (e) {}
 };
@@ -254,6 +284,13 @@ document.querySelectorAll('.kr-hot').forEach(function(el){
   el.addEventListener('click', function(){
     try { KRHotspot.postMessage(el.dataset.id); } catch (e) {}
   });
+});
+// A plain tap on the car (not a hotspot, not a drag) toggles the chrome.
+mv.addEventListener('click', function(e){
+  try {
+    if (e.target && e.target.closest && e.target.closest('.kr-hot')) return;
+    KRTap.postMessage('1');
+  } catch (e2) {}
 });
 window.krApply();
 ''';
@@ -267,7 +304,9 @@ window.krApply();
   }
 
   void _recenter() {
-    _controller?.runJavaScript('window.krRecenter&&window.krRecenter();');
+    setState(() => _zoom = 1);
+    _controller?.runJavaScript(
+        'window.krRecenter&&window.krRecenter(${widget.autoRotate});');
   }
 
   @override
@@ -298,7 +337,14 @@ window.krApply();
           ),
         ),
         Positioned.fill(child: _viewer()),
-        // Recenter: reset zoom/pan/orbit if the user gets lost up close.
+        // Preset zoom levels (manual pinch still works in-between). Auto-rotate
+        // only at 1x; 2x/3x are manual-orbit only.
+        Positioned(
+          left: 8,
+          bottom: 6,
+          child: _ZoomLevels(level: _zoom, onPick: _setZoom),
+        ),
+        // Recenter: reset zoom/orbit to 1x if the user gets lost up close.
         Positioned(
           right: 2,
           bottom: 2,
@@ -345,6 +391,9 @@ window.krApply();
         JavascriptChannel('KRHotspot', onMessageReceived: (msg) {
           widget.onHotspotTap?.call(msg.message);
         }),
+        JavascriptChannel('KRTap', onMessageReceived: (_) {
+          widget.onTap?.call();
+        }),
       },
       onWebViewCreated: (c) => _controller = c,
 
@@ -357,15 +406,14 @@ window.krApply();
       // Camera & motion — gentle showroom turntable (toggleable); drag still orbits.
       cameraControls: true,
       disableZoom: false,
-      autoRotate: widget.autoRotate,
+      autoRotate: _autoRotateEffective,
       autoRotateDelay: 0,
       rotationPerSecond: '14deg',
-      // Pulled back to 130% so the auto-rotate turntable never drifts the car
-      // out of frame. Min radius 100% caps zoom-in (can't overflow); elevation
-      // can drop below the car (down to -15°) to inspect the underbody nodes
-      // (exhaust/catalyst). Recenter returns to this framing.
+      // 1x framing = 130% (auto-rotate never drifts out of frame). Min radius
+      // 55% caps zoom-in at ~3x (no zooming into nothingness); elevation can
+      // drop below the car (down to -15°) to inspect the underbody nodes.
       cameraOrbit: '28deg 72deg 130%',
-      minCameraOrbit: 'auto -15deg 100%',
+      minCameraOrbit: 'auto -15deg 55%',
       maxCameraOrbit: 'auto 95deg 260%',
       fieldOfView: '30deg',
       interpolationDecay: 220,
@@ -373,6 +421,51 @@ window.krApply();
       ar: false,
       interactionPrompt: InteractionPrompt.none,
       loading: Loading.eager,
+    );
+  }
+}
+
+// ─── Preset zoom levels (1x / 2x / 3x) overlaid on the car ──────────────────
+class _ZoomLevels extends StatelessWidget {
+  final int level;
+  final void Function(int) onPick;
+  const _ZoomLevels({required this.level, required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: const Color(0xCC16181D),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0x26FFFFFF)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final z in const [1, 2, 3]) _cell(z),
+        ],
+      ),
+    );
+  }
+
+  Widget _cell(int z) {
+    final sel = z == level;
+    return GestureDetector(
+      onTap: () => onPick(z),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: sel ? const Color(0x26FFFFFF) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text('${z}x',
+            style: TextStyle(
+              fontSize: 11, fontWeight: FontWeight.w700,
+              color: sel ? Colors.white : const Color(0xFF9AA0AA),
+            )),
+      ),
     );
   }
 }
