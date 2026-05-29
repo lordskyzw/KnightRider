@@ -55,6 +55,9 @@ class LampState {
 class CarModel3D extends StatefulWidget {
   final String src;
   final String alt;
+  /// CC-BY attribution for [src]. Required to stay visible by the model's
+  /// licence; defaults to the Vitz credit for the bundled default asset.
+  final String credit;
   final Color? bodyColor;
   final Color wheelColor;
   final LampState lamps;
@@ -63,6 +66,7 @@ class CarModel3D extends StatefulWidget {
     super.key,
     this.src = kVehicleModelAsset,
     this.alt = 'Vehicle 3D model',
+    this.credit = kVehicleModelCredit,
     this.bodyColor,
     this.wheelColor = const Color(0xFF000000),
     this.lamps = const LampState(),
@@ -167,14 +171,14 @@ window.krApply();
           ),
         ),
         Positioned.fill(child: _viewer()),
-        const Positioned(
+        Positioned(
           left: 0,
           right: 0,
           bottom: 4,
           child: Center(
             child: Text(
-              kVehicleModelCredit,
-              style: TextStyle(
+              widget.credit,
+              style: const TextStyle(
                   fontSize: 9, color: Color(0xFF5A5A5E), letterSpacing: 0.2),
             ),
           ),

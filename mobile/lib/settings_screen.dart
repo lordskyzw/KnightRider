@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'config.dart';
+import 'vehicle_catalog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -15,6 +16,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _cloudCtrl = TextEditingController();
   bool _loaded = false;
   bool _car3d = true;
+  String _vehicleId = kDefaultVehicleId;
   Color _accent = AppPalette.accent;
   Color? _carColor; // null = factory paint
   Color _wheelColor = const Color(0xFF0A0A0A);
@@ -30,6 +32,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final host = await PiConfig.host();
     final cloud = await PiConfig.cloudUrl();
     final car3d = await PiConfig.car3dEnabled();
+    final vehicleId = await PiConfig.vehicleId();
     final carColorArgb = await PiConfig.carColor();
     final wheelArgb = await PiConfig.wheelColor();
     final lightsOn = await PiConfig.lightsOn();
@@ -37,6 +40,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _hostCtrl.text = host;
       _cloudCtrl.text = cloud;
       _car3d = car3d;
+      _vehicleId = vehicleId;
       _carColor = carColorArgb == null ? null : Color(carColorArgb);
       _wheelColor = Color(wheelArgb);
       _lightsOn = lightsOn;
@@ -66,6 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await PiConfig.setHost(host);
     await PiConfig.setCloudUrl(cloud);
     await PiConfig.setCar3dEnabled(_car3d);
+    await PiConfig.setVehicleId(_vehicleId);
     await PiConfig.setAccentColor(_accent.toARGB32());
     await PiConfig.setCarColor(_carColor?.toARGB32());
     await PiConfig.setWheelColor(_wheelColor.toARGB32());
@@ -109,6 +114,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 24),
                 const Divider(color: AppPalette.divider),
+                const SizedBox(height: 12),
+                const _Label('VEHICLE'),
+                const SizedBox(height: 4),
+                const Text(
+                  "Which car to render. VIN can't be read over OBD reliably, "
+                  'so choose it here.',
+                  style: TextStyle(fontSize: 12, color: AppPalette.textMid),
+                ),
+                const SizedBox(height: 8),
+                for (final v in kVehicles)
+                  _VehicleRow(
+                    vehicle: v,
+                    selected: v.id == _vehicleId,
+                    onTap: () => setState(() => _vehicleId = v.id),
+                  ),
+                const SizedBox(height: 16),
+                const Divider(color: AppPalette.divider),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('3D car model',
@@ -116,7 +138,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           color: AppPalette.textHi,
                           fontWeight: FontWeight.w600)),
                   subtitle: const Text(
-                    'Show the rotatable 3D Vitz in the dashboard centre. '
+                    'Show the rotatable 3D car in the dashboard centre. '
                     'Turn off to use the flat silhouette (lighter).',
                     style: TextStyle(fontSize: 12, color: AppPalette.textMid),
                   ),
@@ -196,6 +218,60 @@ class _Label extends StatelessWidget {
           fontWeight: FontWeight.w700,
           letterSpacing: 2,
         ));
+  }
+}
+
+/// A tappable vehicle choice — custom (not RadioListTile, whose group API is
+/// deprecated) to match the app's hand-rolled pickers.
+class _VehicleRow extends StatelessWidget {
+  final VehicleModel vehicle;
+  final bool selected;
+  final VoidCallback onTap;
+  const _VehicleRow({
+    required this.vehicle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_unchecked,
+              size: 20,
+              color: selected ? AppPalette.accent : AppPalette.textMid,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(vehicle.name,
+                      style: const TextStyle(
+                          color: AppPalette.textHi,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 2),
+                  Text(
+                    vehicle.has3d
+                        ? '3D model available'
+                        : '3D model coming soon — silhouette for now',
+                    style: const TextStyle(
+                        fontSize: 11, color: AppPalette.textMid),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

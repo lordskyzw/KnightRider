@@ -14,6 +14,7 @@ import 'pi_client.dart';
 import 'sample.dart';
 import 'settings_screen.dart';
 import 'uploader.dart';
+import 'vehicle_catalog.dart';
 import 'ws_client.dart';
 
 // Tesla-inspired palette now lives in app_theme.dart (shared app-wide). `_T`
@@ -51,6 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _ecuName;    // captured from session.ecu_name
   String _buildLabel = '';
   bool _car3d = false; // feature flag: 3D model vs SVG silhouette
+  VehicleModel _vehicle = vehicleById(null); // which car's model to render
   Color? _carColor;    // null = factory paint
   Color _wheelColor = const Color(0xFF0A0A0A); // default black
   bool _lightsOn = false;
@@ -87,6 +89,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _cloudUrl = await PiConfig.cloudUrl();
     _buildLabel = await BuildInfo.displayVersion();
     _car3d = await PiConfig.car3dEnabled();
+    _vehicle = vehicleById(await PiConfig.vehicleId());
     final carColorArgb = await PiConfig.carColor();
     _carColor = carColorArgb == null ? null : Color(carColorArgb);
     _wheelColor = Color(await PiConfig.wheelColor());
@@ -202,12 +205,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _host = await PiConfig.host();
       _cloudUrl = await PiConfig.cloudUrl();
       final car3d = await PiConfig.car3dEnabled();
+      final vehicle = vehicleById(await PiConfig.vehicleId());
       final carColorArgb = await PiConfig.carColor();
       final wheelArgb = await PiConfig.wheelColor();
       final lightsOn = await PiConfig.lightsOn();
       if (mounted) {
         setState(() {
           _car3d = car3d;
+          _vehicle = vehicle;
           _carColor = carColorArgb == null ? null : Color(carColorArgb);
           _wheelColor = Color(wheelArgb);
           _lightsOn = lightsOn;
@@ -337,6 +342,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         fuelPct: fuel,
                         rpmForPulse: liveRpm,
                         use3d: _car3d,
+                        vehicle: _vehicle,
                         carColor: _carColor,
                         wheelColor: _wheelColor,
                         lamps: _lampState(),
@@ -563,6 +569,7 @@ class _CarVisualizer extends StatelessWidget {
   final double? fuelPct;
   final double rpmForPulse;
   final bool use3d;
+  final VehicleModel vehicle;
   final Color? carColor;
   final Color wheelColor;
   final LampState lamps;
@@ -572,6 +579,7 @@ class _CarVisualizer extends StatelessWidget {
     required this.batteryV,
     required this.fuelPct,
     required this.rpmForPulse,
+    required this.vehicle,
     this.use3d = false,
     this.carColor,
     this.wheelColor = const Color(0xFF0A0A0A),
@@ -589,8 +597,9 @@ class _CarVisualizer extends StatelessWidget {
         children: [
           // glow behind the car, pulses with RPM
           Center(child: _RpmGlow(rpm: rpmForPulse, size: carW * 1.6)),
-          // Centre: rotatable 3D model (feature flag) or flat SVG silhouette.
-          if (use3d)
+          // Centre: rotatable 3D model when enabled AND this vehicle has a GLB;
+          // otherwise the flat SVG silhouette (also the safe WebView fallback).
+          if (use3d && vehicle.has3d)
             Align(
               // Lifted slightly to fill the space below the RPM readout and
               // sized large so the car reads as the centrepiece.
@@ -598,7 +607,9 @@ class _CarVisualizer extends StatelessWidget {
               child: SizedBox(
                 width: w * 0.88, height: carH * 1.20,
                 child: CarModel3D(
-                  alt: 'Vehicle 3D model',
+                  src: vehicle.glbAsset!,
+                  alt: '${vehicle.name} 3D model',
+                  credit: vehicle.credit ?? '',
                   bodyColor: carColor,
                   wheelColor: wheelColor,
                   lamps: lamps,
@@ -606,16 +617,29 @@ class _CarVisualizer extends StatelessWidget {
               ),
             )
           else
-          Center(
-            child: SizedBox(
-              width: carW, height: carH,
-              child: SvgPicture.asset(
-                'assets/cars/vitz.svg',
-                fit: BoxFit.contain,
-                semanticsLabel: 'Toyota Vitz top-down silhouette',
+            Center(
+              child: SizedBox(
+                width: carW, height: carH,
+                child: SvgPicture.asset(
+                  vehicle.silhouetteAsset,
+                  fit: BoxFit.contain,
+                  semanticsLabel: '${vehicle.name} silhouette',
+                ),
               ),
             ),
-          ),
+          // When 3D is on but this car has no GLB yet, say so rather than
+          // silently showing a placeholder silhouette.
+          if (use3d && !vehicle.has3d)
+            Positioned(
+              left: 0, right: 0, bottom: 4,
+              child: Center(
+                child: Text(
+                  '${vehicle.name} · 3D model coming soon',
+                  style: const TextStyle(
+                      fontSize: 9, color: Color(0xFF5A5A5E), letterSpacing: 0.2),
+                ),
+              ),
+            ),
           // 4 corner pods
           Positioned(
             left: 0, top: 0,

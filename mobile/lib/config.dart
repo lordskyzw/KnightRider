@@ -11,6 +11,7 @@ class PiConfig {
   static const _kCarColor = 'car_color';
   static const _kWheelColor = 'wheel_color';
   static const _kLightsOn = 'lights_on';
+  static const _kVehicleId = 'vehicle_id';
 
   // Matches the Pi's hostname set during the 2026-05-28 field-setup session.
   // mDNS resolves this on any device on the same LAN/hotspot, regardless of
@@ -98,6 +99,19 @@ class PiConfig {
   static Future<void> setLightsOn(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kLightsOn, value);
+  }
+
+  /// Which vehicle's 3D model / silhouette to render. Stored as the catalog id
+  /// (see vehicle_catalog.dart). VIN can't auto-select it — VIN isn't reliably
+  /// OBD-readable — so the user picks in Settings.
+  static Future<String> vehicleId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kVehicleId) ?? 'vitz';
+  }
+
+  static Future<void> setVehicleId(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kVehicleId, id);
   }
 
   static Future<int> backlogCursor() async {
