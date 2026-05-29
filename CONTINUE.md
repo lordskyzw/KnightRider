@@ -216,10 +216,14 @@ tests, all passing.
   LIVE (telemetry flowing). `ws_client` CONNECTED now fires on
   `WebSocketChannel.ready`; dashboard tracks `_lastSampleAt`. LIVE ⟺ real RPMs.
 - ✅ **Per-car 3D models + Settings car picker** (`b2abbb7`).
-  `vehicle_catalog.dart` (Vitz w/ GLB, Axio E160 entry w/o GLB yet); user picks
-  in Settings (VIN can't auto-pick — [[obd-vehicle-id-constraint]]).
-  **TODO: source a CC-BY `assets/cars/axio.glb`** (licensing-sensitive, see
-  [[car-3d-model-decision]]) and set `glbAsset` in the catalog → drop-in.
+  `vehicle_catalog.dart`; user picks in Settings (VIN can't auto-pick —
+  [[obd-vehicle-id-constraint]]).
+- ✅ **Axio 3D model added** (`e720c9e`, v0.9.1+13). CC-BY "Toyota Corolla Axio"
+  by taeemtasbi (Sketchfab Data API), optimized 16.8→4.76 MB
+  (gltf-transform webp+1024, no Draco/meshopt so it works offline).
+  **Follow-up:** recolor/lamp JS in `car_model.dart` is Vitz-tuned (material
+  names) — Axio body paint roughly works via `main_paint`, but wheels
+  (`tyre_side`) + lamps need a per-vehicle material map for full fidelity.
 - **General advancements / polish** — still TBD with user.
 - **Cloud API unchanged** — confirmed.
 
