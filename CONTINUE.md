@@ -67,6 +67,20 @@ When you finish a chunk of work, before stopping:
 | `e7f0b33`| Mobile: surface app build version on the Settings screen and translate `errno=1` in the diag banner into "you have an old APK, reinstall". Cuts the "is everyone on the latest build?" debugging round-trip. |
 | `a6b2f72`| **Tonight's big push.** OBD poller now polls **14 PIDs** (was 6) — engine load, MAP, MAF, timing advance, STFT/LTFT B1, O2 B1S2 voltage, run-time-since-start, plus the original five. Added Mode 03 stored-DTC sweep every 30s with diff-tracking (emits `dtc.stored.p0301` on new, `dtc.cleared.*` on drop, `obd.dtc_count` heartbeat). Added Mode 09 VIN/cal-id/ECU-name reads at startup, manual flow-control for multi-frame responses. New `src/can/dtc.rs` module + tests. Sniffer wired up for real: hardcoded Toyota Prius 2010 DBC subset (`0x1C4` ENGINE_RPM @ ~42 Hz, `0x0AA` WHEEL_SPEEDS × 4, `0x0B4` SPEED). `main.rs` now opens two CAN sockets — one for the poller, one for the sniffer. 41 tests pass (was 35). |
 
+#### Mobile 3D dashboard arc (2026-05-29) — versions 0.3.0+3 → 0.7.0+10
+
+| Commit   | What                                                        |
+|----------|-------------------------------------------------------------|
+| `3bf55d1`| Tesla-style dashboard + drill-down screens (STORED/SYNCED/WAIT → BatchesScreen, DTC → DtcScreen w/ ~80-code lookup) + Vitz SVG silhouette in centre. |
+| `cc46ea7`| Rotatable 3D car (`model_viewer_plus`, glTF) in dash centre behind a Settings feature flag; SVG fallback. (Chose glTF/model-viewer over Unity — see `car-3d-model-decision` memory.) |
+| `7764135`| Swapped placeholder for the **real CC-BY Toyota Vitz** GLB (Driving501, Sketchfab, pulled via Sketchfab Data API w/ user token). On-view attribution. |
+| `1997c17`| Knight Rider app icon — KITT red scanner bar, all densities + adaptive, via `flutter_launcher_icons`; reproducible from `mobile/tool/gen_icon.py`. |
+| `9bb6785`,`657de6b`| `docs/SCALING.md`: deferred VIN-keyed cloud GLB delivery (curate-not-realtime); live-model-state (lights/doors) feasibility. |
+| `9c54e2d`| App-wide Tesla theme (`app_theme.dart`) + user accent picker; **fixed WS pill flapping** (ws_client no longer marks connected optimistically); perf: dashboard coalesces samples to ~12 Hz repaint; 3D default ON, bigger/brighter. |
+| `982d4b2`| Body-only car paint (tint the `Paint` material only) + 3D load spinner. |
+| `de3a303`| Car **lights** (emissive on lamp materials) + **wheel colour** (default black) pickers; calm offline banner (no raw SocketException); GLB optimised `gltf-transform weld+prune` 3.22→2.07 MB (needed npm 11.6.2→11.16.0 for the ECOMPROMISED bug). |
+| _pending_| Dark launch splash (was white); **next:** wire lights to live DBC signals. |
+
 ### Sibling repo `../knight-rider-cloud`
 
 | Commit   | What                                                        |
@@ -164,6 +178,21 @@ tests, all passing.
 ---
 
 ## Up next (priority order)
+
+### 0. 3D car live-state + renderer (current focus, 2026-05-29)
+- **Wire lights to live DBC signals** (in progress). App side: dashboard derives
+  lamp state from signal keys and drives `CarModel3D` lamps live; needs the
+  WebView to update via `runJavaScript` (NOT key-reload — reloading per signal
+  change = the 30s warm-up each time). Pi side: sniffer needs **bit-level**
+  signal support (current `Signal` is byte-aligned only) + the Toyota
+  light/turn/brake CAN messages — exact IDs/bits unknown without the car/DBC,
+  so add as a field-verify scaffold. Manual Settings "Lights" toggle stays as
+  override/demo.
+- **Renderer decision:** evaluate native Filament (`thermion`) vs the current
+  `model_viewer_plus` WebView. WebView costs the cold-start delay, no bloom (so
+  lamps look "full-bright" not glowing), and can't transform nodes (blocks
+  animated doors). Filament would fix all three but is a bigger integration.
+  See `docs/SCALING.md` "3D model load time" + "live model state".
 
 ### 1. Field test of the extended binary tonight (immediate)
 Binary is built and **already running on the Pi at
