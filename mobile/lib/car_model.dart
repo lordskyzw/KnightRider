@@ -4,12 +4,16 @@ import 'package:model_viewer_plus/model_viewer_plus.dart';
 /// The glTF/GLB asset shown in the dashboard centre when the 3D feature flag
 /// is on.
 ///
-/// PLACEHOLDER: this is the Khronos "ToyCar" model (CC0, public domain) used
-/// to prove the renderer, lighting and orbit feel. The production asset is a
-/// real per-vehicle GLB (starting with the Vitz NSP130), delivered from the
-/// cloud on vehicle onboarding. When that lands, only this one constant
-/// changes — everything downstream keys off it.
-const String kVehicleModelAsset = 'assets/cars/toycar.glb';
+/// Currently a real photogrammetry Toyota Vitz. Later this becomes a
+/// per-vehicle GLB delivered from the cloud on vehicle onboarding; when that
+/// lands, only this constant (and the attribution) changes — everything
+/// downstream keys off it.
+const String kVehicleModelAsset = 'assets/cars/vitz.glb';
+
+/// CC-BY attribution required by the model's licence. Must stay visible
+/// wherever the model is shown. Source:
+/// https://sketchfab.com/3d-models/toyota-vitz-0d1428782a5f4cf69efd8a15744e1d49
+const String kVehicleModelCredit = 'Vitz by Driving501 · CC BY 4.0';
 
 /// Tesla-dark background so the model sits seamlessly in the dashboard.
 const Color _kStage = Color(0xFF0A0A0B);
@@ -35,7 +39,29 @@ class CarModel3D extends StatelessWidget {
   Widget build(BuildContext context) {
     return ColoredBox(
       color: _kStage,
-      child: ModelViewer(
+      child: Stack(
+        children: [
+          Positioned.fill(child: _viewer()),
+          // CC-BY attribution — must remain visible while the model shows.
+          Positioned(
+            left: 8,
+            bottom: 6,
+            child: Text(
+              kVehicleModelCredit,
+              style: const TextStyle(
+                fontSize: 9,
+                color: Color(0xFF5A5A5E),
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _viewer() {
+    return ModelViewer(
         // Re-create the viewer if the asset ever changes (per-vehicle swap).
         key: ValueKey(src),
         src: src,
@@ -69,7 +95,6 @@ class CarModel3D extends StatelessWidget {
         ar: false,
         interactionPrompt: InteractionPrompt.none,
         loading: Loading.eager,
-      ),
     );
   }
 }
