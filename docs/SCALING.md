@@ -87,6 +87,43 @@ transparent viewer. To actually cut load time later:
 - Bigger win long-term: native Filament renderer (`thermion`) instead of the
   WebView, which removes the model-viewer.js + WebView warm-up entirely.
 
+## Live model state — lights / doors / windows reflecting real signals
+
+Investigated 2026-05-29 against the Vitz GLB (37 materials, 443 nodes, **0
+animations**). Goal: the 3D car mirrors the real car (headlights on, indicator
+blinking, door ajar, etc.).
+
+**Model side — what the asset supports:**
+- **Lights: feasible now.** Each lamp is its own material (`sunburst_lowbeam`,
+  `sunburst_signal_L/R`, `sunburst_taillight_L/R`, `sunburst_reverselight`,
+  `sunburst_foglight`). model-viewer's public Material API exposes
+  `setEmissiveFactor` (+ emissive strength) — same injection path as the paint
+  tint (see `CarModel3D._tintJs`). So we can make any lamp glow on demand.
+- **Doors / windows / hood / wheels / steering: needs asset prep.** They ARE
+  separate nodes (`sunburst_door_FL..RR`, `sunburst_hood`, `steelwheel_*`,
+  `sunburst_steer`), but the GLB has **no animation clips**, and model-viewer's
+  public API does NOT expose arbitrary node transforms — only material props,
+  material variants, and *playing existing glTF animations*. So to open a door
+  we must either (a) author open/close + wheel-spin + steering clips into the
+  GLB in Blender (then drive via model-viewer `animation-name`/timeScale), or
+  (b) move to a scene-graph renderer (Filament/`thermion`) that lets us rotate
+  nodes directly.
+
+**Data side — do we even have the signals?** These are NOT OBD-II PIDs; they're
+manufacturer body-control messages on CAN, read via the DBC sniffer (same path
+as RPM/speed today), so they're per-vehicle:
+- Toyota opendbc has body messages (`LIGHT_STALK`/headlights+high-beam,
+  blinkers/turn signals, `BODY_CONTROL_STATE` door-open + brake + lights).
+  Availability depends on which messages broadcast on the reachable bus.
+- Windows-down rarely broadcasts; likely not available.
+
+**Recommended order when we pick this up:**
+1. Lights glow driven by DBC turn-signal/headlight/brake state — highest impact,
+   works with the current model + renderer.
+2. Door-ajar indicator (DBC) shown as a UI badge first; animated door later.
+3. Wheel-spin / steering tied to speed + steering angle — needs the animated
+   asset or Filament.
+
 ## Other deferred items (demo-phase omissions)
 From [[knight-rider-system-architecture]]: auth, OTA, ed25519 batch signing,
 Pi↔phone pairing. Multi-user / multi-device all live past MVP too.
