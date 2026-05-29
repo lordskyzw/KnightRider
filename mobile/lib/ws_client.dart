@@ -65,13 +65,26 @@ class WsClient {
       _scheduleReconnect();
       return;
     }
-    // Stay in `connecting` until a real frame arrives. The handshake is async
-    // and may fail (bad host, no server) — marking connected optimistically
-    // here made the status pill flap LIVE↔OFFLINE every reconnect cycle.
+    // The handshake is async. `.ready` completes only when the socket genuinely
+    // opens, so flipping to CONNECTED here is honest, not optimistic — a failed
+    // handshake throws and we reconnect (the old optimistic mark, set right
+    // after connect(), made the pill flap). CONNECTED means "channel open to the
+    // Pi". Whether telemetry is actually *flowing* is a separate concern tracked
+    // by the dashboard from sample-arrival time (LINKED = open but quiet, LIVE =
+    // fresh data) — so the user can tell "reached the Pi" from "seeing RPMs".
+    _channel!.ready.then((_) {
+      if (_disposed) return;
+      _lastError = null;
+      _setState(WsState.connected);
+    }).catchError((Object e) {
+      _lastError = 'handshake failed: ${e.toString()}';
+      _scheduleReconnect();
+    });
 
     _sub = _channel!.stream.listen(
       (data) {
-        // First successful frame proves the channel is genuinely up.
+        // A frame is also proof the channel is up (covers the rare case where
+        // data races ahead of the `.ready` callback).
         if (_currentState != WsState.connected) {
           _setState(WsState.connected);
         }

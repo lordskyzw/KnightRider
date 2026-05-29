@@ -21,6 +21,15 @@ import 'ws_client.dart';
 // `_T.accent` is the user-customisable colour.
 typedef _T = AppPalette;
 
+/// Honest, data-driven connection status. Splits the single ambiguous "LIVE"
+/// into three: you can tell "can't reach the Pi" from "reached it but no
+/// telemetry yet (ignition off)" from "actually receiving fresh data".
+enum LinkStatus { offline, linked, live }
+
+/// A sample must arrive within this window for the link to count as LIVE;
+/// otherwise the channel is open but quiet → LINKED.
+const Duration _kLiveWindow = Duration(seconds: 3);
+
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -34,6 +43,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _cloudUrl = PiConfig.defaultCloudUrl;
   WsState _state = WsState.disconnected;
   String? _wsError;
+  DateTime? _lastSampleAt; // when the most recent sample arrived (data freshness)
+  LinkStatus _shownStatus = LinkStatus.offline; // last status painted (for repaint trigger)
   final Map<String, Sample> _latest = {};
 
   String? _vin;        // captured from session.vin sample
@@ -93,10 +104,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await _refreshBacklogCounts();
     _pullTimer = Timer.periodic(const Duration(seconds: 30), (_) => _kickBacklogPull());
 
-    // Coalesced UI repaint: flush at ~12 Hz only when something changed.
+    // Coalesced UI repaint: flush at ~12 Hz when data changed, OR when the
+    // link status would change (e.g. LIVE→LINKED once telemetry goes quiet for
+    // longer than _kLiveWindow — that lapse produces no new sample, so without
+    // this the pill would stay green on stale data).
     _uiTimer = Timer.periodic(const Duration(milliseconds: 80), (_) {
-      if (_dirty && mounted) {
+      if (!mounted) return;
+      final statusChanged = _linkStatus != _shownStatus;
+      if (_dirty || statusChanged) {
         _dirty = false;
+        _shownStatus = _linkStatus;
         setState(() {});
       }
     });
@@ -119,9 +136,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _ws!.start();
   }
 
+  /// Channel state + data freshness collapsed into one honest status.
+  LinkStatus get _linkStatus {
+    if (_state != WsState.connected) return LinkStatus.offline;
+    final last = _lastSampleAt;
+    if (last != null && DateTime.now().difference(last) < _kLiveWindow) {
+      return LinkStatus.live;
+    }
+    return LinkStatus.linked; // socket open to the Pi, but no recent telemetry
+  }
+
   void _onSample(Sample s) {
     // No setState here — just stash the latest value and mark dirty. The
     // _uiTimer flushes to a single setState at ~12 Hz (see _boot).
+    _lastSampleAt = DateTime.now();
     _latest[s.signal] = s;
     // Session metadata samples carry the string payload in `unit`.
     if (s.signal == 'session.vin') _vin = s.unit;
@@ -283,13 +311,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           children: [
             _TopStatusBar(
-              state: _state,
+              status: _linkStatus,
               host: _host,
               vin: _vin,
               buildLabel: _buildLabel,
               onSettings: _openSettings,
             ),
-            if (_state != WsState.connected && _wsError != null)
+            // Only nag about reaching the Pi when we genuinely can't (OFFLINE).
+            // LINKED (open but quiet) is normal — the amber pill says it all.
+            if (_linkStatus == LinkStatus.offline && _wsError != null)
               _ErrorBanner(detail: _wsError!),
             const SizedBox(height: 6),
             Expanded(
@@ -360,13 +390,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 // ─── Top status bar ─────────────────────────────────────────────────────────
 class _TopStatusBar extends StatelessWidget {
-  final WsState state;
+  final LinkStatus status;
   final String host;
   final String? vin;
   final String buildLabel;
   final VoidCallback onSettings;
   const _TopStatusBar({
-    required this.state,
+    required this.status,
     required this.host,
     required this.vin,
     required this.buildLabel,
@@ -375,18 +405,19 @@ class _TopStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // `connecting` shows as OFFLINE (same colour) so the pill doesn't flap
-    // colours every reconnect cycle — only a genuine live link turns green.
-    final (label, color) = switch (state) {
-      WsState.connected => ('LIVE', _T.live),
-      WsState.connecting => ('OFFLINE', _T.accent),
-      WsState.disconnected => ('OFFLINE', _T.accent),
+    // Three honest states: OFFLINE (can't reach Pi), LINKED (reached the Pi but
+    // no fresh telemetry — e.g. ignition off), LIVE (data flowing now). Only
+    // LIVE pulses green, so "LIVE" reliably means you're seeing real RPMs.
+    final (label, color) = switch (status) {
+      LinkStatus.live => ('LIVE', _T.live),
+      LinkStatus.linked => ('LINKED', _T.warning),
+      LinkStatus.offline => ('OFFLINE', _T.accent),
     };
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 10),
       child: Row(
         children: [
-          _PulseDot(color: color, pulsing: state == WsState.connected),
+          _PulseDot(color: color, pulsing: status == LinkStatus.live),
           const SizedBox(width: 8),
           Text(label,
               style: TextStyle(
