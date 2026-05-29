@@ -610,6 +610,7 @@ class _CarVisualizer extends StatelessWidget {
                   src: vehicle.glbAsset!,
                   alt: '${vehicle.name} 3D model',
                   credit: vehicle.credit ?? '',
+                  materials: vehicle.materials,
                   bodyColor: carColor,
                   wheelColor: wheelColor,
                   lamps: lamps,

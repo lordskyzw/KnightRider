@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+
+import 'vehicle_catalog.dart';
 
 /// The glTF/GLB asset shown in the dashboard centre when the 3D feature flag
 /// is on. Later this becomes a per-vehicle GLB delivered from the cloud; only
@@ -58,6 +61,8 @@ class CarModel3D extends StatefulWidget {
   /// CC-BY attribution for [src]. Required to stay visible by the model's
   /// licence; defaults to the Vitz credit for the bundled default asset.
   final String credit;
+  /// Material-name map for this GLB (which materials are body/wheel/lamps).
+  final MaterialMap materials;
   final Color? bodyColor;
   final Color wheelColor;
   final LampState lamps;
@@ -67,6 +72,7 @@ class CarModel3D extends StatefulWidget {
     this.src = kVehicleModelAsset,
     this.alt = 'Vehicle 3D model',
     this.credit = kVehicleModelCredit,
+    this.materials = const MaterialMap(),
     this.bodyColor,
     this.wheelColor = const Color(0xFF000000),
     this.lamps = const LampState(),
@@ -83,7 +89,8 @@ class _CarModel3DState extends State<CarModel3D> {
   static double _lin(double s) =>
       s <= 0.04045 ? s / 12.92 : math.pow((s + 0.055) / 1.055, 2.4).toDouble();
 
-  /// JS assignments that set window.__krState to the current widget values.
+  /// JS assignments that set window.__krState to the current widget values,
+  /// including the per-vehicle material-name map.
   String _stateJs() {
     final b = widget.bodyColor;
     final haveBody = b != null;
@@ -92,11 +99,17 @@ class _CarModel3DState extends State<CarModel3D> {
     final bb = haveBody ? _lin(b.b) : 0.0;
     final w = widget.wheelColor;
     final l = widget.lamps;
+    final m = widget.materials;
+    final map = 'map:{'
+        'body:${jsonEncode(m.body)},wheel:${jsonEncode(m.wheel)},'
+        'head:${jsonEncode(m.head)},tail:${jsonEncode(m.tail)},'
+        'signalL:${jsonEncode(m.signalL)},signalR:${jsonEncode(m.signalR)},'
+        'reverse:${jsonEncode(m.reverse)}}';
     return 'window.__krState={'
         'body:[$br,$bg,$bb],haveBody:$haveBody,'
         'wheel:[${_lin(w.r)},${_lin(w.g)},${_lin(w.b)}],'
         'head:${l.head},brake:${l.brake},left:${l.left},'
-        'right:${l.right},reverse:${l.reverse}};';
+        'right:${l.right},reverse:${l.reverse},$map};';
   }
 
   /// One-time script: defines krApply + the load/ready hooks, then applies the
@@ -105,27 +118,35 @@ class _CarModel3DState extends State<CarModel3D> {
     return '''
 const mv = document.querySelector('model-viewer');
 ${_stateJs()}
+window.krMatch = function(name, subs) {
+  if (!subs || !subs.length) return false;
+  const n = (name || '').toLowerCase();
+  return subs.some(function(s){ return n.includes(String(s).toLowerCase()); });
+};
 window.krApply = function() {
   if (!mv || !mv.model) return;
   const s = window.__krState;
+  const M = s.map || {};
   for (const m of mv.model.materials) {
-    const n = (m.name || '').toLowerCase();
+    const n = m.name || '';
     try {
-      if (s.haveBody && n.includes('paint')) {
+      // Recolour (body first, then wheel — wheel wins if a material matches both)
+      if (s.haveBody && window.krMatch(n, M.body)) {
         m.pbrMetallicRoughness.setBaseColorFactor([s.body[0], s.body[1], s.body[2], 1]);
       }
-      if (n.includes('tire')) {
+      if (window.krMatch(n, M.wheel)) {
         m.pbrMetallicRoughness.setBaseColorFactor([s.wheel[0], s.wheel[1], s.wheel[2], 1]);
       }
-      if (n.includes('lowbeam') || n.includes('foglight') || n.includes('vehiclelights')) {
+      // Lamps (first matching slot wins)
+      if (window.krMatch(n, M.head)) {
         m.setEmissiveFactor(s.head ? [1.0, 0.92, 0.75] : [0, 0, 0]);
-      } else if (n.includes('tail')) {
+      } else if (window.krMatch(n, M.tail)) {
         m.setEmissiveFactor(s.brake ? [1.0, 0, 0] : (s.head ? [0.35, 0, 0] : [0, 0, 0]));
-      } else if (n.includes('reverse')) {
+      } else if (window.krMatch(n, M.reverse)) {
         m.setEmissiveFactor(s.reverse ? [0.85, 0.85, 0.85] : [0, 0, 0]);
-      } else if (n.includes('signal_l')) {
+      } else if (window.krMatch(n, M.signalL)) {
         m.setEmissiveFactor(s.left ? [1.0, 0.5, 0] : [0, 0, 0]);
-      } else if (n.includes('signal_r')) {
+      } else if (window.krMatch(n, M.signalR)) {
         m.setEmissiveFactor(s.right ? [1.0, 0.5, 0] : [0, 0, 0]);
       }
     } catch (e) {}

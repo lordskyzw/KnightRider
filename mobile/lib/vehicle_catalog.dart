@@ -7,6 +7,30 @@
 /// VIN can't pick the car for us — VIN isn't reliably OBD-readable in the field
 /// (Honda blocks it, the Toyota Axio doesn't expose Mode 09 PID 02), so the
 /// user chooses in Settings. See the obd-vehicle-id-constraint note.
+/// Per-vehicle map from semantic slots to GLB material-name substrings (matched
+/// case-insensitively). Each GLB names its materials differently, so the
+/// recolor/lamp logic can't hardcode names — the dashboard injects the right
+/// map for the selected car. Empty list = that slot isn't separable on this
+/// model (no effect, no crash).
+class MaterialMap {
+  final List<String> body;   // body paint (recolorable)
+  final List<String> wheel;  // wheels/tyres (recolorable)
+  final List<String> head;   // head/low-beam/fog/DRL + general lamp lenses
+  final List<String> tail;   // taillights (brake-reactive)
+  final List<String> signalL; // left indicator
+  final List<String> signalR; // right indicator
+  final List<String> reverse; // reverse lamp
+  const MaterialMap({
+    this.body = const [],
+    this.wheel = const [],
+    this.head = const [],
+    this.tail = const [],
+    this.signalL = const [],
+    this.signalR = const [],
+    this.reverse = const [],
+  });
+}
+
 class VehicleModel {
   final String id; // stable key persisted in prefs (e.g. 'vitz')
   final String name; // shown in the picker
@@ -17,6 +41,8 @@ class VehicleModel {
   final String silhouetteAsset;
   /// CC-BY attribution, required to stay visible wherever [glbAsset] is shown.
   final String? credit;
+  /// Material-name map for recolour/lamps in this specific GLB.
+  final MaterialMap materials;
 
   const VehicleModel({
     required this.id,
@@ -24,6 +50,7 @@ class VehicleModel {
     required this.glbAsset,
     required this.silhouetteAsset,
     required this.credit,
+    this.materials = const MaterialMap(),
   });
 
   bool get has3d => glbAsset != null;
@@ -41,6 +68,16 @@ const List<VehicleModel> kVehicles = [
     glbAsset: 'assets/cars/vitz.glb',
     silhouetteAsset: 'assets/cars/vitz.svg',
     credit: 'Vitz by Driving501 · CC BY 4.0',
+    // The Vitz GLB has cleanly-named per-lamp materials.
+    materials: MaterialMap(
+      body: ['paint'],
+      wheel: ['tire'],
+      head: ['lowbeam', 'foglight', 'vehiclelights'],
+      tail: ['tail'],
+      signalL: ['signal_l'],
+      signalR: ['signal_r'],
+      reverse: ['reverse'],
+    ),
   ),
   VehicleModel(
     id: 'axio',
@@ -48,6 +85,16 @@ const List<VehicleModel> kVehicles = [
     glbAsset: 'assets/cars/axio.glb',
     silhouetteAsset: _kGenericSilhouette,
     credit: 'Corolla Axio by taeemtasbi · CC BY 4.0',
+    // This GLB isn't authored with per-lamp materials: body/wheel recolour are
+    // clean (main_paint / tyre_side), but the only lamp material is the shared
+    // lens 'klosz', so 'head' lights all lenses together and there's no
+    // separable tail/turn/reverse. Body recolour also tints the rims (they
+    // share main_paint).
+    materials: MaterialMap(
+      body: ['main_paint'],
+      wheel: ['tyre_side'],
+      head: ['klosz'],
+    ),
   ),
 ];
 
