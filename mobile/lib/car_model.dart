@@ -21,9 +21,9 @@ const String kVehicleModelCredit = 'Vitz by Driving501 · CC BY 4.0';
 /// (PBR + image-based lighting) inside a transparent WebView, so it floats on
 /// the dashboard with the RPM glow showing through behind it.
 ///
-/// [tint] recolours the car: model-viewer multiplies each material's base
-/// colour by it, which reads as real paint because the stock body is neutral
-/// silver (silver × red → red) while dark glass/wheels stay dark. `null` keeps
+/// [tint] recolours the car body. The Vitz GLB has 37 named materials; only
+/// the one called `Paint` is the exterior body, so we recolour just that and
+/// leave glass, lights, wheels, grille and interior untouched. `null` keeps
 /// the factory finish.
 class CarModel3D extends StatelessWidget {
   final String src;
@@ -51,7 +51,10 @@ function applyTint() {
   if (!mv || !mv.model) return;
   const c = [$r, $g, $b, 1];
   for (const m of mv.model.materials) {
-    try { m.pbrMetallicRoughness.setBaseColorFactor(c); } catch (e) {}
+    // Only the body paint — leave glass, lights, wheels, grille, interior.
+    if (m.name && m.name.toLowerCase().includes('paint')) {
+      try { m.pbrMetallicRoughness.setBaseColorFactor(c); } catch (e) {}
+    }
   }
 }
 mv.addEventListener('load', applyTint);
@@ -63,6 +66,18 @@ applyTint();
   Widget build(BuildContext context) {
     return Stack(
       children: [
+        // Sits behind the (transparent) viewer during the WebGL warm-up so
+        // the centre isn't blank; the car covers it once the model paints.
+        const Center(
+          child: SizedBox(
+            width: 26,
+            height: 26,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Color(0xFF5A5A5E),
+            ),
+          ),
+        ),
         Positioned.fill(child: _viewer()),
         // CC-BY attribution — must remain visible while the model shows.
         Positioned(

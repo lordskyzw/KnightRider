@@ -72,6 +72,21 @@ GLB in the cloud. Per-request path just serves a static file + manifest entry.
 
 ---
 
+## 3D model load time
+
+The Vitz GLB is 3MB with 152 mesh primitives / 37 materials. Cold-start in the
+WebView (proxy + model-viewer.min.js + WebGL init + parse) is noticeably slow,
+worst on emulators (software GL). MVP masks it with a loading spinner behind the
+transparent viewer. To actually cut load time later:
+- Merge/weld geometry (152 primitives → few) and prune via `gltf-transform`.
+- Compression: prefer **meshopt** over Draco — Draco's decoder is fetched from
+  gstatic by default and would break the offline-first case. Verify model-viewer
+  ships the meshopt decoder inline before relying on it.
+- Blocked 2026-05-29: `npx @gltf-transform/cli` failed with npm `ECOMPROMISED`
+  in this environment; revisit when the npm toolchain is healthy.
+- Bigger win long-term: native Filament renderer (`thermion`) instead of the
+  WebView, which removes the model-viewer.js + WebView warm-up entirely.
+
 ## Other deferred items (demo-phase omissions)
 From [[knight-rider-system-architecture]]: auth, OTA, ed25519 batch signing,
 Pi↔phone pairing. Multi-user / multi-device all live past MVP too.
