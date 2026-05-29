@@ -11,6 +11,7 @@ import 'config.dart';
 import 'dtc_screen.dart';
 import 'pi_client.dart';
 import 'sample.dart';
+import 'sensor_map.dart';
 import 'settings_screen.dart';
 import 'uploader.dart';
 import 'vehicle_catalog.dart';
@@ -49,6 +50,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   bool _car3d = true; // 3D model by default (silhouette only as fallback)
   bool _autoRotate = true; // showroom turntable
+  bool _inDepth = false; // X-ray sensor mode
   VehicleModel _vehicle = vehicleById(null); // which car's model to render
   Color? _carColor;    // null = factory paint
   Color _wheelColor = const Color(0xFF0A0A0A); // default black
@@ -239,6 +241,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ));
   }
 
+  /// Sensor-node status for the X-ray hotspots: fault if a mapped DTC is
+  /// stored, live if we've received any of its signals, else available.
+  String _sensorStatus(SensorNode n) {
+    for (final k in n.faultKeys) {
+      if (_latest.containsKey(k)) return 'fault';
+    }
+    for (final k in n.signals) {
+      if (_latest.containsKey(k)) return 'live';
+    }
+    return 'available';
+  }
+
+  void _openSensor(String id) {
+    final node = kSensorNodes.firstWhere((n) => n.id == id,
+        orElse: () => kSensorNodes.first);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SensorSheet(node: node, latest: Map.of(_latest)),
+    );
+  }
+
   @override
   void dispose() {
     _sampleSub?.cancel();
@@ -322,6 +346,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 carColor: _carColor,
                 wheelColor: _wheelColor,
                 lamps: _lampState(),
+                inDepth: _inDepth,
+                onToggleDepth: () => setState(() => _inDepth = !_inDepth),
+                sensorStatus: {
+                  for (final n in kSensorNodes) n.id: _sensorStatus(n),
+                },
+                onHotspotTap: _openSensor,
               ),
             ),
             Padding(
@@ -486,11 +516,19 @@ class _CarVisualizer extends StatelessWidget {
   final Color? carColor;
   final Color wheelColor;
   final LampState lamps;
+  final bool inDepth;
+  final VoidCallback onToggleDepth;
+  final Map<String, String> sensorStatus;
+  final void Function(String id) onHotspotTap;
   const _CarVisualizer({
     required this.rpmForPulse,
     required this.vehicle,
+    required this.onToggleDepth,
+    required this.sensorStatus,
+    required this.onHotspotTap,
     this.use3d = false,
     this.autoRotate = true,
+    this.inDepth = false,
     this.carColor,
     this.wheelColor = const Color(0xFF0A0A0A),
     this.lamps = const LampState(),
@@ -498,6 +536,7 @@ class _CarVisualizer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canXray = use3d && vehicle.has3d;
     return LayoutBuilder(builder: (_, c) {
       final w = c.maxWidth;
       final carH = c.maxHeight.clamp(180.0, 360.0);
@@ -509,7 +548,7 @@ class _CarVisualizer extends StatelessWidget {
           Center(child: _RpmGlow(rpm: rpmForPulse, size: glowSize)),
           // The car fills the hero space: rotatable 3D model when enabled AND
           // this vehicle has a GLB; otherwise the flat SVG silhouette.
-          if (use3d && vehicle.has3d)
+          if (canXray)
             Positioned.fill(
               child: CarModel3D(
                 src: vehicle.glbAsset!,
@@ -517,6 +556,9 @@ class _CarVisualizer extends StatelessWidget {
                 credit: vehicle.credit ?? '',
                 materials: vehicle.materials,
                 autoRotate: autoRotate,
+                inDepth: inDepth,
+                sensorStatus: sensorStatus,
+                onHotspotTap: onHotspotTap,
                 bodyColor: carColor,
                 wheelColor: wheelColor,
                 lamps: lamps,
@@ -545,9 +587,57 @@ class _CarVisualizer extends StatelessWidget {
                 ),
               ),
             ),
+          // X-ray toggle — reveals the glowing sensor map. Only when there's a
+          // 3D model to ghost.
+          if (canXray)
+            Positioned(
+              right: 2, top: 2,
+              child: _XrayToggle(active: inDepth, onTap: onToggleDepth),
+            ),
         ],
       );
     });
+  }
+}
+
+// ─── X-ray toggle (enters/exits the in-depth sensor view) ───────────────────
+class _XrayToggle extends StatelessWidget {
+  final bool active;
+  final VoidCallback onTap;
+  const _XrayToggle({required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = active ? _T.accent : _T.textMid;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          decoration: BoxDecoration(
+            color: active ? _T.accent.withValues(alpha: 0.14) : _T.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+                color: active ? _T.accent.withValues(alpha: 0.6) : _T.divider),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(active ? Icons.sensors : Icons.sensors_outlined,
+                  size: 14, color: c),
+              const SizedBox(width: 6),
+              Text('X-RAY',
+                  style: TextStyle(
+                    fontSize: 10, color: c,
+                    letterSpacing: 1.5, fontWeight: FontWeight.w700,
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -818,6 +908,153 @@ class _ErrorBanner extends StatelessWidget {
                 style: TextStyle(
                     color: isOldApk ? _T.warning : _T.textMid, fontSize: 12)),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Sensor hotspot detail sheet (tapped in X-ray mode) ─────────────────────
+class _SensorSheet extends StatelessWidget {
+  final SensorNode node;
+  final Map<String, Sample> latest;
+  const _SensorSheet({required this.node, required this.latest});
+
+  @override
+  Widget build(BuildContext context) {
+    final faults = node.faultKeys.where(latest.containsKey).toList();
+    final hasLive = node.signals.any(latest.containsKey);
+    final (statusText, statusColor) = faults.isNotEmpty
+        ? ('FAULT', _T.accent)
+        : (hasLive ? ('LIVE', _T.live) : ('AVAILABLE', _T.textMid));
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: _T.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        border: Border(
+          top: BorderSide(color: _T.divider),
+          left: BorderSide(color: _T.divider),
+          right: BorderSide(color: _T.divider),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                margin: const EdgeInsets.only(top: 8, bottom: 4),
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                    color: _T.textLow, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(node.label,
+                            style: const TextStyle(
+                                color: _T.textHi, fontSize: 18,
+                                fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 2),
+                        Text(node.where,
+                            style: const TextStyle(
+                                color: _T.textMid, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Text(statusText,
+                        style: TextStyle(
+                          fontSize: 9, color: statusColor,
+                          letterSpacing: 1.5, fontWeight: FontWeight.w700,
+                        )),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Divider(height: 1, color: _T.divider),
+            for (final k in node.signals)
+              _SensorSignalRow(signalKey: k, sample: latest[k]),
+            if (faults.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded,
+                        size: 15, color: _T.accent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Stored fault: ${faults.map((f) => f.split('.').last.toUpperCase()).join(', ')}',
+                        style: TextStyle(color: _T.accent, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 14),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SensorSignalRow extends StatelessWidget {
+  final String signalKey;
+  final Sample? sample;
+  const _SensorSignalRow({required this.signalKey, required this.sample});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = sample;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(signalKey,
+                style: TextStyle(
+                  fontFamily: 'monospace', fontSize: 12, color: _T.accent,
+                )),
+          ),
+          const SizedBox(width: 12),
+          if (s == null)
+            const Text('— not received',
+                style: TextStyle(fontSize: 12, color: _T.textLow))
+          else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(s.value.toStringAsFixed(s.value.abs() >= 100 ? 0 : 2),
+                    style: const TextStyle(
+                      fontSize: 15, color: _T.textHi,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    )),
+                if (s.unit.isNotEmpty) ...[
+                  const SizedBox(width: 3),
+                  Text(s.unit,
+                      style: const TextStyle(fontSize: 10, color: _T.textMid)),
+                ],
+              ],
+            ),
         ],
       ),
     );

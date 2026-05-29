@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'sensor_map.dart';
 import 'vehicle_catalog.dart';
 
 /// The glTF/GLB asset shown in the dashboard centre when the 3D feature flag
@@ -70,6 +72,17 @@ class CarModel3D extends StatefulWidget {
   final MaterialMap materials;
   /// Gentle showroom turntable rotation. Drag-to-orbit still works either way.
   final bool autoRotate;
+  /// X-ray / in-depth mode: ghost the body and reveal glowing sensor hotspots.
+  final bool inDepth;
+  /// Sensor nodes to anchor as hotspots (positions normalised to the bbox).
+  final List<SensorNode> sensorNodes;
+  /// Per-node status (`live` / `available` / `fault`) → hotspot colour.
+  final Map<String, String> sensorStatus;
+  /// Sign of the model's "front" along Z (+1 or -1) — orientation differs per
+  /// GLB. Tuned per vehicle so anatomical hotspots land on the right end.
+  final double frontZ;
+  /// Tapped a sensor hotspot (passes the node id).
+  final void Function(String id)? onHotspotTap;
   final Color? bodyColor;
   final Color wheelColor;
   final LampState lamps;
@@ -81,6 +94,11 @@ class CarModel3D extends StatefulWidget {
     this.credit = kVehicleModelCredit,
     this.materials = const MaterialMap(),
     this.autoRotate = true,
+    this.inDepth = false,
+    this.sensorNodes = kSensorNodes,
+    this.sensorStatus = const {},
+    this.frontZ = 1.0,
+    this.onHotspotTap,
     this.bodyColor,
     this.wheelColor = const Color(0xFF000000),
     this.lamps = const LampState(),
@@ -97,8 +115,8 @@ class _CarModel3DState extends State<CarModel3D> {
   static double _lin(double s) =>
       s <= 0.04045 ? s / 12.92 : math.pow((s + 0.055) / 1.055, 2.4).toDouble();
 
-  /// JS assignments that set window.__krState to the current widget values,
-  /// including the per-vehicle material-name map.
+  /// JS assignments for the current widget values: colours, lamps, material
+  /// map, in-depth flag, per-node sensor status, and the front-Z orientation.
   String _stateJs() {
     final b = widget.bodyColor;
     final haveBody = b != null;
@@ -117,11 +135,34 @@ class _CarModel3DState extends State<CarModel3D> {
         'body:[$br,$bg,$bb],haveBody:$haveBody,'
         'wheel:[${_lin(w.r)},${_lin(w.g)},${_lin(w.b)}],'
         'head:${l.head},brake:${l.brake},left:${l.left},'
-        'right:${l.right},reverse:${l.reverse},$map};';
+        'right:${l.right},reverse:${l.reverse},inDepth:${widget.inDepth},$map};'
+        'window.__krSensors=${jsonEncode(widget.sensorStatus)};'
+        'window.__krFrontZ=${widget.frontZ};';
   }
 
-  /// One-time script: defines krApply + the load/ready hooks, then applies the
-  /// initial state. Subsequent changes go through [_push] (no reload).
+  /// Glowing sensor hotspots, slotted into the `<model-viewer>`. Positions are
+  /// set in JS from the model's bounding box on load (see krPlace).
+  String _hotspotHtml() => widget.sensorNodes
+      .map((n) => '<button class="kr-hot" slot="hotspot-${n.id}" '
+          'data-id="${n.id}" data-nx="${n.nx}" data-ny="${n.ny}" '
+          'data-nz="${n.nz}" data-position="0m 0m 0m" data-normal="0 1 0"></button>')
+      .join();
+
+  static const String _relatedCss = '''
+.kr-hot{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.85);
+  background:rgba(255,255,255,.18);cursor:pointer;padding:0;display:none;
+  transition:transform .15s ease;}
+.kr-hot:hover{transform:scale(1.3);}
+.kr-hot.live{border-color:#22c55e;background:#22c55e;
+  box-shadow:0 0 12px 3px rgba(34,197,94,.8);animation:krpulse 1.6s infinite;}
+.kr-hot.available{border-color:#9aa0aa;background:rgba(154,160,170,.4);}
+.kr-hot.fault{border-color:#ef4444;background:#ef4444;
+  box-shadow:0 0 14px 4px rgba(239,68,68,.85);animation:krpulse .9s infinite;}
+@keyframes krpulse{0%,100%{opacity:1}50%{opacity:.4}}
+''';
+
+  /// One-time script: defines krApply (recolour + lamps + ghost), hotspot
+  /// placement, recenter, and the load/ready hooks. Updates go via [_push].
   String _initJs() {
     return '''
 const mv = document.querySelector('model-viewer');
@@ -131,48 +172,96 @@ window.krMatch = function(name, subs) {
   const n = (name || '').toLowerCase();
   return subs.some(function(s){ return n.includes(String(s).toLowerCase()); });
 };
-window.krApply = function() {
-  if (!mv || !mv.model) return;
-  const s = window.__krState;
-  const M = s.map || {};
+let krOrig = null;
+window.krSnapshot = function() {
+  krOrig = {};
+  if (!mv.model) return;
   for (const m of mv.model.materials) {
-    const n = m.name || '';
-    try {
-      // Recolour (body first, then wheel — wheel wins if a material matches both)
-      if (s.haveBody && window.krMatch(n, M.body)) {
-        m.pbrMetallicRoughness.setBaseColorFactor([s.body[0], s.body[1], s.body[2], 1]);
-      }
-      if (window.krMatch(n, M.wheel)) {
-        m.pbrMetallicRoughness.setBaseColorFactor([s.wheel[0], s.wheel[1], s.wheel[2], 1]);
-      }
-      // Lamps (first matching slot wins)
-      if (window.krMatch(n, M.head)) {
-        m.setEmissiveFactor(s.head ? [1.0, 0.92, 0.75] : [0, 0, 0]);
-      } else if (window.krMatch(n, M.tail)) {
-        m.setEmissiveFactor(s.brake ? [1.0, 0, 0] : (s.head ? [0.35, 0, 0] : [0, 0, 0]));
-      } else if (window.krMatch(n, M.reverse)) {
-        m.setEmissiveFactor(s.reverse ? [0.85, 0.85, 0.85] : [0, 0, 0]);
-      } else if (window.krMatch(n, M.signalL)) {
-        m.setEmissiveFactor(s.left ? [1.0, 0.5, 0] : [0, 0, 0]);
-      } else if (window.krMatch(n, M.signalR)) {
-        m.setEmissiveFactor(s.right ? [1.0, 0.5, 0] : [0, 0, 0]);
-      }
+    try { krOrig[m.name] = {
+      bcf: m.pbrMetallicRoughness.baseColorFactor.slice(), am: m.getAlphaMode() };
     } catch (e) {}
   }
 };
+window.krPlace = function() {
+  try {
+    const c = mv.getBoundingBoxCenter(); const d = mv.getDimensions();
+    const fz = window.__krFrontZ || 1;
+    document.querySelectorAll('.kr-hot').forEach(function(el){
+      const nx=+el.dataset.nx, ny=+el.dataset.ny, nz=+el.dataset.nz;
+      const x=c.x+nx*d.x/2, y=c.y+ny*d.y/2, z=c.z+nz*fz*d.z/2;
+      mv.updateHotspot({ name: el.getAttribute('slot'), position: x+'m '+y+'m '+z+'m' });
+    });
+  } catch (e) {}
+};
+window.krApply = function() {
+  if (!mv.model) return;
+  const s = window.__krState; const M = s.map || {}; const dep = s.inDepth;
+  for (const m of mv.model.materials) {
+    const n = m.name || ''; const o = krOrig ? krOrig[n] : null;
+    let rgb = null;
+    if (s.haveBody && window.krMatch(n, M.body)) rgb = s.body;
+    else if (window.krMatch(n, M.wheel)) rgb = s.wheel;
+    try {
+      if (dep) {
+        // Ghost everything translucent; sensor hotspots float "inside".
+        const a = 0.18; const base = rgb ? rgb : (o ? o.bcf : [1,1,1]);
+        m.setAlphaMode('BLEND');
+        m.pbrMetallicRoughness.setBaseColorFactor([base[0], base[1], base[2], a]);
+        m.setEmissiveFactor([0,0,0]);
+      } else {
+        if (o) { m.setAlphaMode(o.am); m.pbrMetallicRoughness.setBaseColorFactor(o.bcf); }
+        if (rgb) m.pbrMetallicRoughness.setBaseColorFactor([rgb[0], rgb[1], rgb[2], o?o.bcf[3]:1]);
+        if (window.krMatch(n, M.head)) {
+          m.setEmissiveFactor(s.head ? [1.0,0.92,0.75] : [0,0,0]);
+        } else if (window.krMatch(n, M.tail)) {
+          m.setEmissiveFactor(s.brake ? [1.0,0,0] : (s.head ? [0.35,0,0] : [0,0,0]));
+        } else if (window.krMatch(n, M.reverse)) {
+          m.setEmissiveFactor(s.reverse ? [0.85,0.85,0.85] : [0,0,0]);
+        } else if (window.krMatch(n, M.signalL)) {
+          m.setEmissiveFactor(s.left ? [1.0,0.5,0] : [0,0,0]);
+        } else if (window.krMatch(n, M.signalR)) {
+          m.setEmissiveFactor(s.right ? [1.0,0.5,0] : [0,0,0]);
+        }
+      }
+    } catch (e) {}
+  }
+  const sens = window.__krSensors || {};
+  document.querySelectorAll('.kr-hot').forEach(function(el){
+    el.style.display = dep ? 'block' : 'none';
+    const st = sens[el.dataset.id] || 'available';
+    el.classList.remove('live','available','fault'); el.classList.add(st);
+  });
+};
+window.krRecenter = function() {
+  try {
+    mv.cameraTarget = 'auto auto auto';
+    mv.cameraOrbit = '28deg 74deg 98%';
+    mv.fieldOfView = '30deg';
+    if (mv.jumpCameraToGoal) mv.jumpCameraToGoal();
+  } catch (e) {}
+};
 mv.addEventListener('load', function() {
-  window.krApply();
+  window.krSnapshot(); window.krPlace(); window.krApply();
   try { KRReady.postMessage('1'); } catch (e) {}
+});
+document.querySelectorAll('.kr-hot').forEach(function(el){
+  el.addEventListener('click', function(){
+    try { KRHotspot.postMessage(el.dataset.id); } catch (e) {}
+  });
 });
 window.krApply();
 ''';
   }
 
-  /// Push the current widget state into the already-loaded viewer.
+  /// Push the current widget state into the already-loaded viewer (no reload).
   void _push() {
     final c = _controller;
     if (c == null || !_ready) return;
     c.runJavaScript('${_stateJs()}window.krApply&&window.krApply();');
+  }
+
+  void _recenter() {
+    _controller?.runJavaScript('window.krRecenter&&window.krRecenter();');
   }
 
   @override
@@ -180,7 +269,9 @@ window.krApply();
     super.didUpdateWidget(old);
     if (old.bodyColor != widget.bodyColor ||
         old.wheelColor != widget.wheelColor ||
-        old.lamps != widget.lamps) {
+        old.lamps != widget.lamps ||
+        old.inDepth != widget.inDepth ||
+        !mapEquals(old.sensorStatus, widget.sensorStatus)) {
       _push();
     }
   }
@@ -201,6 +292,19 @@ window.krApply();
           ),
         ),
         Positioned.fill(child: _viewer()),
+        // Recenter: reset zoom/pan/orbit if the user gets lost up close.
+        Positioned(
+          right: 2,
+          bottom: 2,
+          child: IconButton(
+            iconSize: 18,
+            visualDensity: VisualDensity.compact,
+            onPressed: _recenter,
+            icon: const Icon(Icons.center_focus_strong_outlined,
+                color: Color(0xFF7A7A7E)),
+            tooltip: 'Recenter',
+          ),
+        ),
         Positioned(
           left: 0,
           right: 0,
@@ -225,10 +329,15 @@ window.krApply();
       alt: widget.alt,
       backgroundColor: Colors.transparent,
       relatedJs: _initJs(),
+      relatedCss: _relatedCss,
+      innerModelViewerHtml: _hotspotHtml(),
       javascriptChannels: {
         JavascriptChannel('KRReady', onMessageReceived: (_) {
           _ready = true;
           _push();
+        }),
+        JavascriptChannel('KRHotspot', onMessageReceived: (msg) {
+          widget.onHotspotTap?.call(msg.message);
         }),
       },
       onWebViewCreated: (c) => _controller = c,

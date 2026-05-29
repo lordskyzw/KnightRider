@@ -1,7 +1,7 @@
 name: knight_rider_mobile
 description: "Knight Rider mobile dashboard + courier client."
 publish_to: 'none'
-version: 0.10.0+15
+version: 0.11.0+16
 
 environment:
   sdk: ^3.10.4
