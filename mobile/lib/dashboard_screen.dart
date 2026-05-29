@@ -34,7 +34,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _cloudUrl = PiConfig.defaultCloudUrl;
   WsState _state = WsState.disconnected;
   String? _wsError;
-  String? _wsUri;
   final Map<String, Sample> _latest = {};
 
   String? _vin;        // captured from session.vin sample
@@ -42,6 +41,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _buildLabel = '';
   bool _car3d = false; // feature flag: 3D model vs SVG silhouette
   Color? _carColor;    // null = factory paint
+  Color _wheelColor = const Color(0xFF0A0A0A); // default black
+  bool _lightsOn = false;
 
   // Backlog + uploader state
   final _db = BacklogDb();
@@ -77,6 +78,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _car3d = await PiConfig.car3dEnabled();
     final carColorArgb = await PiConfig.carColor();
     _carColor = carColorArgb == null ? null : Color(carColorArgb);
+    _wheelColor = Color(await PiConfig.wheelColor());
+    _lightsOn = await PiConfig.lightsOn();
     _attachWs();
 
     _uploader = Uploader(db: _db, cloudUrlProvider: () => _cloudUrl);
@@ -110,7 +113,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _state = s;
         _wsError = (s == WsState.connected) ? null : _ws?.lastError;
-        _wsUri = _ws?.lastTriedUri;
       });
       if (s == WsState.connected) _kickBacklogPull();
     });
@@ -173,10 +175,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _cloudUrl = await PiConfig.cloudUrl();
       final car3d = await PiConfig.car3dEnabled();
       final carColorArgb = await PiConfig.carColor();
+      final wheelArgb = await PiConfig.wheelColor();
+      final lightsOn = await PiConfig.lightsOn();
       if (mounted) {
         setState(() {
           _car3d = car3d;
           _carColor = carColorArgb == null ? null : Color(carColorArgb);
+          _wheelColor = Color(wheelArgb);
+          _lightsOn = lightsOn;
         });
       }
       _attachWs();
@@ -249,7 +255,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               onSettings: _openSettings,
             ),
             if (_state != WsState.connected && _wsError != null)
-              _ErrorBanner(label: 'WS', uri: _wsUri ?? '', detail: _wsError!),
+              _ErrorBanner(detail: _wsError!),
             const SizedBox(height: 6),
             Expanded(
               child: Padding(
@@ -267,6 +273,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         rpmForPulse: liveRpm,
                         use3d: _car3d,
                         carColor: _carColor,
+                        wheelColor: _wheelColor,
+                        lightsOn: _lightsOn,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -490,6 +498,8 @@ class _CarVisualizer extends StatelessWidget {
   final double rpmForPulse;
   final bool use3d;
   final Color? carColor;
+  final Color wheelColor;
+  final bool lightsOn;
   const _CarVisualizer({
     required this.coolantC,
     required this.intakeC,
@@ -498,6 +508,8 @@ class _CarVisualizer extends StatelessWidget {
     required this.rpmForPulse,
     this.use3d = false,
     this.carColor,
+    this.wheelColor = const Color(0xFF0A0A0A),
+    this.lightsOn = false,
   });
 
   @override
@@ -519,7 +531,12 @@ class _CarVisualizer extends StatelessWidget {
               alignment: const Alignment(0, -0.10),
               child: SizedBox(
                 width: w * 0.88, height: carH * 1.20,
-                child: CarModel3D(alt: 'Vehicle 3D model', tint: carColor),
+                child: CarModel3D(
+                  alt: 'Vehicle 3D model',
+                  bodyColor: carColor,
+                  wheelColor: wheelColor,
+                  lightsOn: lightsOn,
+                ),
               ),
             )
           else
@@ -937,44 +954,44 @@ class _Divider extends StatelessWidget {
 
 // ─── Error banner (WS issues) ───────────────────────────────────────────────
 class _ErrorBanner extends StatelessWidget {
-  final String label;
-  final String uri;
   final String detail;
-  const _ErrorBanner({required this.label, required this.uri, required this.detail});
+  const _ErrorBanner({required this.detail});
 
   @override
   Widget build(BuildContext context) {
-    final isOldApk = detail.toLowerCase().contains('operation not permitted')
-        || detail.toLowerCase().contains('errno = 1');
+    final d = detail.toLowerCase();
+    final isOldApk = d.contains('operation not permitted') || d.contains('errno = 1');
+    // Translate raw socket exceptions into a calm, human message. Offline is a
+    // normal state (e.g. not on the Pi's network yet) — don't show a stack trace.
+    final String message;
+    final Color tone;
+    if (isOldApk) {
+      message = 'Old APK — uninstall and reinstall the current build to '
+          'restore network access.';
+      tone = _T.warning;
+    } else {
+      message = "Not connected to the Pi. Join the Pi's hotspot/Wi-Fi and it "
+          'will link automatically.';
+      tone = _T.textMid;
+    }
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: _T.accent.withValues(alpha: 0.10),
+        color: _T.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _T.accent.withValues(alpha: 0.4)),
+        border: Border.all(color: _T.divider),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(children: [
-            Text(label, style: TextStyle(
-                color: _T.accent, fontWeight: FontWeight.w700, fontSize: 11,
-                letterSpacing: 1.5)),
-            const SizedBox(width: 8),
-            Expanded(child: Text(uri, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: _T.textMid, fontFamily: 'monospace', fontSize: 10))),
-          ]),
-          const SizedBox(height: 4),
-          Text(detail, maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: _T.textHi, fontSize: 11)),
-          if (isOldApk) ...[
-            const SizedBox(height: 4),
-            const Text('⚠ Old APK detected — uninstall + reinstall the current build.',
-                style: TextStyle(color: _T.warning, fontSize: 10,
-                    fontWeight: FontWeight.w600)),
-          ],
+          Icon(isOldApk ? Icons.warning_amber_rounded : Icons.wifi_off_rounded,
+              size: 16, color: tone),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message,
+                style: TextStyle(
+                    color: isOldApk ? _T.warning : _T.textMid, fontSize: 12)),
+          ),
         ],
       ),
     );

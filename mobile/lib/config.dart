@@ -9,6 +9,8 @@ class PiConfig {
   static const _kCar3d = 'car_3d_enabled';
   static const _kAccent = 'accent_color';
   static const _kCarColor = 'car_color';
+  static const _kWheelColor = 'wheel_color';
+  static const _kLightsOn = 'lights_on';
 
   // Matches the Pi's hostname set during the 2026-05-28 field-setup session.
   // mDNS resolves this on any device on the same LAN/hotspot, regardless of
@@ -74,6 +76,28 @@ class PiConfig {
     } else {
       await prefs.setInt(_kCarColor, argb);
     }
+  }
+
+  /// Wheel paint as an ARGB int; defaults to black.
+  static Future<int> wheelColor() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_kWheelColor) ?? 0xFF0A0A0A;
+  }
+
+  static Future<void> setWheelColor(int argb) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kWheelColor, argb);
+  }
+
+  /// Whether the 3D car's lamps are lit. Off by default.
+  static Future<bool> lightsOn() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kLightsOn) ?? false;
+  }
+
+  static Future<void> setLightsOn(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kLightsOn, value);
   }
 
   static Future<int> backlogCursor() async {

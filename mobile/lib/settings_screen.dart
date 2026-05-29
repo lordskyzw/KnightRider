@@ -17,6 +17,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _car3d = true;
   Color _accent = AppPalette.accent;
   Color? _carColor; // null = factory paint
+  Color _wheelColor = const Color(0xFF0A0A0A);
+  bool _lightsOn = false;
 
   @override
   void initState() {
@@ -29,11 +31,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final cloud = await PiConfig.cloudUrl();
     final car3d = await PiConfig.car3dEnabled();
     final carColorArgb = await PiConfig.carColor();
+    final wheelArgb = await PiConfig.wheelColor();
+    final lightsOn = await PiConfig.lightsOn();
     setState(() {
       _hostCtrl.text = host;
       _cloudCtrl.text = cloud;
       _car3d = car3d;
       _carColor = carColorArgb == null ? null : Color(carColorArgb);
+      _wheelColor = Color(wheelArgb);
+      _lightsOn = lightsOn;
       _accent = AppPalette.accent;
       _loaded = true;
     });
@@ -62,6 +68,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await PiConfig.setCar3dEnabled(_car3d);
     await PiConfig.setAccentColor(_accent.toARGB32());
     await PiConfig.setCarColor(_carColor?.toARGB32());
+    await PiConfig.setWheelColor(_wheelColor.toARGB32());
+    await PiConfig.setLightsOn(_lightsOn);
     if (!mounted) return;
     Navigator.of(context).pop(true);
   }
@@ -130,6 +138,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onPick: (c) => setState(() => _carColor = c),
                 ),
                 const SizedBox(height: 24),
+                const _Label('WHEEL COLOUR'),
+                const SizedBox(height: 14),
+                _SwatchRow(
+                  options: kWheelColorOptions,
+                  selected: _wheelColor,
+                  onPick: (c) => setState(() => _wheelColor = c),
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Lights',
+                      style: TextStyle(
+                          color: AppPalette.textHi,
+                          fontWeight: FontWeight.w600)),
+                  subtitle: const Text(
+                    'Illuminate the car\'s head, tail, fog and indicator lamps.',
+                    style: TextStyle(fontSize: 12, color: AppPalette.textMid),
+                  ),
+                  value: _lightsOn,
+                  onChanged: (v) => setState(() => _lightsOn = v),
+                ),
+                const SizedBox(height: 16),
                 const Divider(color: AppPalette.divider),
                 const SizedBox(height: 12),
                 const _Label('ACCENT COLOUR'),
@@ -166,6 +196,59 @@ class _Label extends StatelessWidget {
           fontWeight: FontWeight.w700,
           letterSpacing: 2,
         ));
+  }
+}
+
+/// A row of solid-colour swatches (non-null), e.g. wheel colours.
+class _SwatchRow extends StatelessWidget {
+  final List<CarColorOption> options;
+  final Color selected;
+  final ValueChanged<Color> onPick;
+  const _SwatchRow({
+    required this.options,
+    required this.selected,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 14,
+      runSpacing: 14,
+      children: [
+        for (final opt in options)
+          GestureDetector(
+            onTap: () => onPick(opt.tint!),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: opt.tint,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: selected.toARGB32() == opt.tint!.toARGB32()
+                          ? AppPalette.textHi
+                          : AppPalette.divider,
+                      width: 3,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: 56,
+                  child: Text(opt.name,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontSize: 9, color: AppPalette.textMid)),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
   }
 }
 

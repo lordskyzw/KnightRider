@@ -21,44 +21,64 @@ const String kVehicleModelCredit = 'Vitz by Driving501 · CC BY 4.0';
 /// (PBR + image-based lighting) inside a transparent WebView, so it floats on
 /// the dashboard with the RPM glow showing through behind it.
 ///
-/// [tint] recolours the car body. The Vitz GLB has 37 named materials; only
-/// the one called `Paint` is the exterior body, so we recolour just that and
-/// leave glass, lights, wheels, grille and interior untouched. `null` keeps
-/// the factory finish.
+/// The Vitz GLB has 37 named materials, so we recolour/illuminate them
+/// selectively via injected JS:
+///   * [bodyColor]  → the `Paint` material (body panels only). null = factory.
+///   * [wheelColor] → the `tire`/wheel material. Defaults to black.
+///   * [lightsOn]   → toggles emissive on the lamp materials (head/tail/fog/
+///     reverse/indicator) so the car looks lit.
 class CarModel3D extends StatelessWidget {
   final String src;
   final String alt;
-  final Color? tint;
+  final Color? bodyColor;
+  final Color wheelColor;
+  final bool lightsOn;
 
   const CarModel3D({
     super.key,
     this.src = kVehicleModelAsset,
     this.alt = 'Vehicle 3D model',
-    this.tint,
+    this.bodyColor,
+    this.wheelColor = const Color(0xFF000000),
+    this.lightsOn = false,
   });
 
-  /// JS injected after the model loads to multiply every material's base
-  /// colour by [tint]. sRGB→linear converted so the paint reads true.
-  String? _tintJs() {
-    final t = tint;
-    if (t == null) return null;
-    double lin(double s) =>
-        s <= 0.04045 ? s / 12.92 : math.pow((s + 0.055) / 1.055, 2.4).toDouble();
-    final r = lin(t.r), g = lin(t.g), b = lin(t.b);
+  static double _lin(double s) =>
+      s <= 0.04045 ? s / 12.92 : math.pow((s + 0.055) / 1.055, 2.4).toDouble();
+
+  /// JS injected after load: recolour body + wheels (baseColorFactor) and
+  /// light up the lamps (emissiveFactor) by material name.
+  String _js() {
+    final b = bodyColor;
+    final haveBody = b != null;
+    final br = haveBody ? _lin(b.r) : 0, bg = haveBody ? _lin(b.g) : 0, bb = haveBody ? _lin(b.b) : 0;
+    final wr = _lin(wheelColor.r), wg = _lin(wheelColor.g), wb = _lin(wheelColor.b);
     return '''
 const mv = document.querySelector('model-viewer');
-function applyTint() {
+function applyAll() {
   if (!mv || !mv.model) return;
-  const c = [$r, $g, $b, 1];
   for (const m of mv.model.materials) {
-    // Only the body paint — leave glass, lights, wheels, grille, interior.
-    if (m.name && m.name.toLowerCase().includes('paint')) {
-      try { m.pbrMetallicRoughness.setBaseColorFactor(c); } catch (e) {}
-    }
+    const n = (m.name || '').toLowerCase();
+    try {
+      if ($haveBody && n.includes('paint')) {
+        m.pbrMetallicRoughness.setBaseColorFactor([$br, $bg, $bb, 1]);
+      }
+      if (n.includes('tire')) {
+        m.pbrMetallicRoughness.setBaseColorFactor([$wr, $wg, $wb, 1]);
+      }
+      if ($lightsOn) {
+        if (n.includes('tail')) m.setEmissiveFactor([0.75, 0.0, 0.0]);
+        else if (n.includes('reverse')) m.setEmissiveFactor([0.85, 0.85, 0.85]);
+        else if (n.includes('signal')) m.setEmissiveFactor([0.85, 0.45, 0.0]);
+        else if (n.includes('lowbeam') || n.includes('foglight') || n.includes('vehiclelights')) {
+          m.setEmissiveFactor([1.0, 0.92, 0.75]);
+        }
+      }
+    } catch (e) {}
   }
 }
-mv.addEventListener('load', applyTint);
-applyTint();
+mv.addEventListener('load', applyAll);
+applyAll();
 ''';
   }
 
@@ -79,16 +99,20 @@ applyTint();
           ),
         ),
         Positioned.fill(child: _viewer()),
-        // CC-BY attribution — must remain visible while the model shows.
-        Positioned(
-          left: 8,
-          bottom: 6,
-          child: Text(
-            kVehicleModelCredit,
-            style: const TextStyle(
-              fontSize: 9,
-              color: Color(0xFF5A5A5E),
-              letterSpacing: 0.2,
+        // CC-BY attribution — centred between the bottom pods so it doesn't
+        // collide with them; must remain visible while the model shows.
+        const Positioned(
+          left: 0,
+          right: 0,
+          bottom: 4,
+          child: Center(
+            child: Text(
+              kVehicleModelCredit,
+              style: TextStyle(
+                fontSize: 9,
+                color: Color(0xFF5A5A5E),
+                letterSpacing: 0.2,
+              ),
             ),
           ),
         ),
@@ -98,15 +122,16 @@ applyTint();
 
   Widget _viewer() {
     return ModelViewer(
-      // Re-create the viewer when the asset OR tint changes so the new paint
-      // is applied from a clean load.
-      key: ValueKey('$src|${tint?.toARGB32()}'),
+      // Re-create the viewer when any appearance input changes so it reloads
+      // and reapplies cleanly.
+      key: ValueKey(
+          '$src|${bodyColor?.toARGB32()}|${wheelColor.toARGB32()}|$lightsOn'),
       src: src,
       alt: alt,
       // Transparent: no opaque rectangle "framing" the car — the dashboard
       // and RPM glow show through behind it.
       backgroundColor: Colors.transparent,
-      relatedJs: _tintJs(),
+      relatedJs: _js(),
 
       // ── Lighting & material quality ──────────────────────────────────
       environmentImage: 'neutral',

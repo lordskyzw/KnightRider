@@ -61,6 +61,16 @@ const List<CarColorOption> kCarColorOptions = [
   CarColorOption('Graphite', Color(0xFF3A3D42)),
 ];
 
+/// Wheel paint choices. Default is black (stock-ish).
+const List<CarColorOption> kWheelColorOptions = [
+  CarColorOption('Black', Color(0xFF0A0A0A)),
+  CarColorOption('Gunmetal', Color(0xFF3A3D42)),
+  CarColorOption('Silver', Color(0xFFC4C6CA)),
+  CarColorOption('Bronze', Color(0xFF8C6A3F)),
+  CarColorOption('White', Color(0xFFEDEDED)),
+  CarColorOption('Gold', Color(0xFFCBA135)),
+];
+
 /// Builds the global dark theme from the current [AppPalette.accent].
 ThemeData buildAppTheme() {
   final scheme = ColorScheme.fromSeed(

@@ -74,16 +74,23 @@ GLB in the cloud. Per-request path just serves a static file + manifest entry.
 
 ## 3D model load time
 
-The Vitz GLB is 3MB with 152 mesh primitives / 37 materials. Cold-start in the
-WebView (proxy + model-viewer.min.js + WebGL init + parse) is noticeably slow,
-worst on emulators (software GL). MVP masks it with a loading spinner behind the
-transparent viewer. To actually cut load time later:
-- Merge/weld geometry (152 primitives → few) and prune via `gltf-transform`.
-- Compression: prefer **meshopt** over Draco — Draco's decoder is fetched from
-  gstatic by default and would break the offline-first case. Verify model-viewer
-  ships the meshopt decoder inline before relying on it.
-- Blocked 2026-05-29: `npx @gltf-transform/cli` failed with npm `ECOMPROMISED`
-  in this environment; revisit when the npm toolchain is healthy.
+Cold-start in the WebView (proxy + model-viewer.min.js + WebGL init + parse) is
+noticeably slow, worst on emulators (software GL). MVP masks it with a loading
+spinner behind the transparent viewer.
+
+Applied 2026-05-29: `gltf-transform weld + prune` → **3.22MB → 2.07MB (-36%)**,
+keeping all 37 named materials and used nodes intact (verified). Required
+upgrading npm 11.6.2 → 11.16.0 first (11.6.2 has the `ECOMPROMISED` "Lock
+compromised" bug; cache clean/wipe did NOT fix it, the upgrade did).
+
+DO NOT use the full `gltf-transform optimize` here: its `palette`/`join`/`flatten`
+steps collapse the 37 materials → 1 (palette texture) and merge nodes, which
+breaks per-part paint/wheel/lights AND the future doors/lights feature. Even
+`dedup` is unsafe — it merges materials sharing a baseColorFactor (e.g. tire +
+glass + grille), rebreaking selective colour. Stick to geometry-only `weld`/`prune`.
+- Further size: **meshopt** compression (not Draco — Draco's decoder is fetched
+  from gstatic, breaking offline). Verify model-viewer bundles the meshopt
+  decoder before relying on it.
 - Bigger win long-term: native Filament renderer (`thermion`) instead of the
   WebView, which removes the model-viewer.js + WebView warm-up entirely.
 
