@@ -252,6 +252,15 @@ tests, all passing.
   snapshot/restore. **Recenter** button added (resets orbit/zoom).
   **NEEDS ON-DEVICE TUNING:** hotspot positions + `frontZ` sign per car, and the
   ghost alpha (0.18) — all guessed; must be eyeballed/iterated on a phone.
+- ✅ **X-ray tuning + UX round** (`cf1d725`, `0f2d859`, v0.12.0+19): node labels
+  (ENGINE/FUEL/…), ghost 18%→30%, framing locked at 130% (no drift), orbit
+  under the car (elev −15°), bigger 36px node hit targets, preset zoom 1x/2x/3x
+  (auto-rotate only at 1x, manual 2x/3x; min radius 55% = no zoom-into-void),
+  idle tap-to-hide chrome (give the car the screen when no data; via KRTap
+  model-viewer click listener), Settings Save at top + bottom.
+  **Still pending on-device verify:** per-car `frontZ`/position accuracy
+  (does ENGINE sit at front?), and whether the KRTap tap-to-hide fires reliably
+  through the WebView.
 - **Next (per user):** add Mercedes models (GLE / G-Wagon / E-Class) — must be
   colored CC-BY; **cloud-deliver them on demand** (downloadable in-app) rather
   than bundling, to keep the APK lean. Search + confirm licenses first.
