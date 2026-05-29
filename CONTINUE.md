@@ -219,11 +219,17 @@ tests, all passing.
   `vehicle_catalog.dart`; user picks in Settings (VIN can't auto-pick —
   [[obd-vehicle-id-constraint]]).
 - ✅ **Axio 3D model added** (`e720c9e`, v0.9.1+13). CC-BY "Toyota Corolla Axio"
-  by taeemtasbi (Sketchfab Data API), optimized 16.8→4.76 MB
-  (gltf-transform webp+1024, no Draco/meshopt so it works offline).
-  **Follow-up:** recolor/lamp JS in `car_model.dart` is Vitz-tuned (material
-  names) — Axio body paint roughly works via `main_paint`, but wheels
-  (`tyre_side`) + lamps need a per-vehicle material map for full fidelity.
+  by taeemtasbi (Sketchfab Data API), optimized (gltf-transform webp+1024, no
+  Draco/meshopt so it works offline).
+- ✅ **Per-vehicle material maps** (`d7d72a5`, v0.9.2+14). `MaterialMap` per
+  `VehicleModel` (body/wheel/head/tail/signalL/signalR/reverse → material-name
+  substrings); `car_model.dart` JS is now map-driven (`krMatch`). Axio GLB
+  re-optimized **without palette/material-dedup** so names survive (4.84 MB).
+  **Axio model limitation:** not authored with per-lamp materials — body/wheel
+  recolour clean (`main_paint`/`tyre_side`), but lamps share the `klosz` lens so
+  "lights" is one group; no separable tail/turn/reverse. **Not yet visually
+  verified on-device** (logic + analyze + test pass; the 3D WebView render
+  should be eyeballed on a phone/emulator).
 - **General advancements / polish** — still TBD with user.
 - **Cloud API unchanged** — confirmed.
 
