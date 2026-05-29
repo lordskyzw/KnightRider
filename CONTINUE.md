@@ -192,8 +192,11 @@ tests, all passing.
   lighting (turn/hazard/headlight) is **gatewayed off the OBD-II bus** on the
   Axio — only brake + door are recoverable. So *live* lamp state from CAN = brake
   + door only; turn/headlights stay on the manual Settings override forever.
-  Full map: `captures/axio-re-20260529/FINDINGS.md`. **TODO: deploy to Pi +
-  live-verify** (press brake → `dbc.toyota.BRAKE.pressed` flips to 1).
+  Full map: `captures/axio-re-20260529/FINDINGS.md`. **DEPLOYED to the Pi
+  2026-05-29** (running c2114fd; journal confirms "20 PIDs" + "Prius PT + Axio
+  body · 6 messages"; buffer preserved). The Pi's old hand-synced 14-PID code is
+  in a `git stash` backup there (recoverable, can drop). **Only TODO left:
+  live-verify on a car** — press brake → `dbc.toyota.BRAKE.pressed` flips to 1.
 - **App side (next):** dashboard should consume `dbc.toyota.BRAKE.pressed` /
   `.DOORS.driver` and drive `CarModel3D` brake-light + door live via
   `runJavaScript` (NOT key-reload — that re-triggers the 30s warm-up).
