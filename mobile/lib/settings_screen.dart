@@ -13,6 +13,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _hostCtrl = TextEditingController();
   final _cloudCtrl = TextEditingController();
   bool _loaded = false;
+  bool _car3d = false;
 
   @override
   void initState() {
@@ -23,9 +24,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     final host = await PiConfig.host();
     final cloud = await PiConfig.cloudUrl();
+    final car3d = await PiConfig.car3dEnabled();
     setState(() {
       _hostCtrl.text = host;
       _cloudCtrl.text = cloud;
+      _car3d = car3d;
       _loaded = true;
     });
   }
@@ -43,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (host.isEmpty || cloud.isEmpty) return;
     await PiConfig.setHost(host);
     await PiConfig.setCloudUrl(cloud);
+    await PiConfig.setCar3dEnabled(_car3d);
     if (!mounted) return;
     Navigator.of(context).pop(true);
   }
@@ -83,6 +87,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       border: OutlineInputBorder(),
                       hintText: 'https://knight-rider-cloud-production.up.railway.app',
                     ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('3D car model (beta)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: const Text(
+                      'Show a rotatable 3D model in the dashboard centre '
+                      'instead of the flat silhouette. Currently a placeholder '
+                      'model — the real per-vehicle asset arrives later.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    value: _car3d,
+                    onChanged: (v) => setState(() => _car3d = v),
                   ),
                   const SizedBox(height: 16),
                   Align(

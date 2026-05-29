@@ -6,6 +6,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'backlog_db.dart';
 import 'batches_screen.dart';
 import 'build_info.dart';
+import 'car_model.dart';
 import 'config.dart';
 import 'dtc_screen.dart';
 import 'pi_client.dart';
@@ -48,6 +49,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _vin;        // captured from session.vin sample
   String? _ecuName;    // captured from session.ecu_name
   String _buildLabel = '';
+  bool _car3d = false; // feature flag: 3D model vs SVG silhouette
 
   // Backlog + uploader state
   final _db = BacklogDb();
@@ -74,6 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _host = await PiConfig.host();
     _cloudUrl = await PiConfig.cloudUrl();
     _buildLabel = await BuildInfo.displayVersion();
+    _car3d = await PiConfig.car3dEnabled();
     _attachWs();
 
     _uploader = Uploader(db: _db, cloudUrlProvider: () => _cloudUrl);
@@ -160,6 +163,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (updated == true) {
       _host = await PiConfig.host();
       _cloudUrl = await PiConfig.cloudUrl();
+      final car3d = await PiConfig.car3dEnabled();
+      if (mounted) setState(() => _car3d = car3d);
       _attachWs();
     }
   }
@@ -245,6 +250,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         batteryV: battery,
                         fuelPct: fuel,
                         rpmForPulse: liveRpm,
+                        use3d: _car3d,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -464,12 +470,14 @@ class _CarVisualizer extends StatelessWidget {
   final double? batteryV;
   final double? fuelPct;
   final double rpmForPulse;
+  final bool use3d;
   const _CarVisualizer({
     required this.coolantC,
     required this.intakeC,
     required this.batteryV,
     required this.fuelPct,
     required this.rpmForPulse,
+    this.use3d = false,
   });
 
   @override
@@ -483,7 +491,15 @@ class _CarVisualizer extends StatelessWidget {
         children: [
           // glow behind the car, pulses with RPM
           Center(child: _RpmGlow(rpm: rpmForPulse, size: carW * 1.6)),
-          // car silhouette centered (SVG asset — Vitz NSP130)
+          // Centre: rotatable 3D model (feature flag) or flat SVG silhouette.
+          if (use3d)
+            Center(
+              child: SizedBox(
+                width: w * 0.66, height: carH,
+                child: const CarModel3D(alt: 'Vehicle 3D model'),
+              ),
+            )
+          else
           Center(
             child: SizedBox(
               width: carW, height: carH,

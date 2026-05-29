@@ -1,7 +1,7 @@
 name: knight_rider_mobile
 description: "Knight Rider mobile dashboard + courier client."
 publish_to: 'none'
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
   sdk: ^3.10.4
@@ -27,6 +27,10 @@ dependencies:
 
   # SVG rendering for the car silhouette + future per-vehicle assets
   flutter_svg: ^2.0.0
+
+  # Rotatable 3D car model in the dashboard centre (glTF/GLB via <model-viewer>).
+  # Behind a feature flag; SVG is the fallback when 3D is off or the model fails.
+  model_viewer_plus: ^1.9.0
 
   # Timestamp formatting on the batches/DTC drill-down screens
   intl: ^0.20.0
