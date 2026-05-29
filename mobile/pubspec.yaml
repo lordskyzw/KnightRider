@@ -1,7 +1,7 @@
 name: knight_rider_mobile
 description: "Knight Rider mobile dashboard + courier client."
 publish_to: 'none'
-version: 0.7.0+10
+version: 0.8.0+11
 
 environment:
   sdk: ^3.10.4
@@ -31,6 +31,11 @@ dependencies:
   # Rotatable 3D car model in the dashboard centre (glTF/GLB via <model-viewer>).
   # Behind a feature flag; SVG is the fallback when 3D is off or the model fails.
   model_viewer_plus: ^1.9.0
+
+  # Used directly for the WebViewController type so CarModel3D can push live
+  # appearance/lamp updates via runJavaScript (no reload). Already a transitive
+  # dep of model_viewer_plus; pinned here so the import is first-class.
+  webview_flutter: ^4.0.0
 
   # Timestamp formatting on the batches/DTC drill-down screens
   intl: ^0.20.0

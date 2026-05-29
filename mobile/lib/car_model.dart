@@ -2,14 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 /// The glTF/GLB asset shown in the dashboard centre when the 3D feature flag
-/// is on.
-///
-/// Currently a real photogrammetry Toyota Vitz. Later this becomes a
-/// per-vehicle GLB delivered from the cloud on vehicle onboarding; when that
-/// lands, only this constant (and the attribution) changes — everything
-/// downstream keys off it.
+/// is on. Later this becomes a per-vehicle GLB delivered from the cloud; only
+/// this constant (and the attribution) changes then.
 const String kVehicleModelAsset = 'assets/cars/vitz.glb';
 
 /// CC-BY attribution required by the model's licence. Must stay visible
@@ -17,22 +14,50 @@ const String kVehicleModelAsset = 'assets/cars/vitz.glb';
 /// https://sketchfab.com/3d-models/toyota-vitz-0d1428782a5f4cf69efd8a15744e1d49
 const String kVehicleModelCredit = 'Vitz by Driving501 · CC BY 4.0';
 
-/// A rotatable 3D vehicle model rendered with Google's `<model-viewer>`
-/// (PBR + image-based lighting) inside a transparent WebView, so it floats on
-/// the dashboard with the RPM glow showing through behind it.
+/// Which of the car's lamps are lit. Driven live from DBC signals (or the
+/// manual Settings toggle for [head]).
+class LampState {
+  final bool head; // head/low-beam + fog + DRLs
+  final bool brake; // taillights bright red
+  final bool left; // left indicator
+  final bool right; // right indicator
+  final bool reverse;
+  const LampState({
+    this.head = false,
+    this.brake = false,
+    this.left = false,
+    this.right = false,
+    this.reverse = false,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is LampState &&
+      other.head == head &&
+      other.brake == brake &&
+      other.left == left &&
+      other.right == right &&
+      other.reverse == reverse;
+
+  @override
+  int get hashCode => Object.hash(head, brake, left, right, reverse);
+}
+
+/// A rotatable 3D vehicle model (`<model-viewer>` in a transparent WebView).
 ///
-/// The Vitz GLB has 37 named materials, so we recolour/illuminate them
-/// selectively via injected JS:
-///   * [bodyColor]  → the `Paint` material (body panels only). null = factory.
+/// The Vitz GLB has 37 named materials. We recolour/illuminate selectively by
+/// material name, and — crucially — push changes via `runJavaScript` so the
+/// WebView is NOT reloaded when colours or lamps change (a reload costs the
+/// full WebGL warm-up, which would be fatal for live signal-driven lamps).
+///   * [bodyColor]  → the `Paint` material (body only). null = factory silver.
 ///   * [wheelColor] → the `tire`/wheel material. Defaults to black.
-///   * [lightsOn]   → toggles emissive on the lamp materials (head/tail/fog/
-///     reverse/indicator) so the car looks lit.
-class CarModel3D extends StatelessWidget {
+///   * [lamps]      → per-lamp emissive state.
+class CarModel3D extends StatefulWidget {
   final String src;
   final String alt;
   final Color? bodyColor;
   final Color wheelColor;
-  final bool lightsOn;
+  final LampState lamps;
 
   const CarModel3D({
     super.key,
@@ -40,67 +65,108 @@ class CarModel3D extends StatelessWidget {
     this.alt = 'Vehicle 3D model',
     this.bodyColor,
     this.wheelColor = const Color(0xFF000000),
-    this.lightsOn = false,
+    this.lamps = const LampState(),
   });
+
+  @override
+  State<CarModel3D> createState() => _CarModel3DState();
+}
+
+class _CarModel3DState extends State<CarModel3D> {
+  WebViewController? _controller;
+  bool _ready = false;
 
   static double _lin(double s) =>
       s <= 0.04045 ? s / 12.92 : math.pow((s + 0.055) / 1.055, 2.4).toDouble();
 
-  /// JS injected after load: recolour body + wheels (baseColorFactor) and
-  /// light up the lamps (emissiveFactor) by material name.
-  String _js() {
-    final b = bodyColor;
+  /// JS assignments that set window.__krState to the current widget values.
+  String _stateJs() {
+    final b = widget.bodyColor;
     final haveBody = b != null;
-    final br = haveBody ? _lin(b.r) : 0, bg = haveBody ? _lin(b.g) : 0, bb = haveBody ? _lin(b.b) : 0;
-    final wr = _lin(wheelColor.r), wg = _lin(wheelColor.g), wb = _lin(wheelColor.b);
+    final br = haveBody ? _lin(b.r) : 0.0;
+    final bg = haveBody ? _lin(b.g) : 0.0;
+    final bb = haveBody ? _lin(b.b) : 0.0;
+    final w = widget.wheelColor;
+    final l = widget.lamps;
+    return 'window.__krState={'
+        'body:[$br,$bg,$bb],haveBody:$haveBody,'
+        'wheel:[${_lin(w.r)},${_lin(w.g)},${_lin(w.b)}],'
+        'head:${l.head},brake:${l.brake},left:${l.left},'
+        'right:${l.right},reverse:${l.reverse}};';
+  }
+
+  /// One-time script: defines krApply + the load/ready hooks, then applies the
+  /// initial state. Subsequent changes go through [_push] (no reload).
+  String _initJs() {
     return '''
 const mv = document.querySelector('model-viewer');
-function applyAll() {
+${_stateJs()}
+window.krApply = function() {
   if (!mv || !mv.model) return;
+  const s = window.__krState;
   for (const m of mv.model.materials) {
     const n = (m.name || '').toLowerCase();
     try {
-      if ($haveBody && n.includes('paint')) {
-        m.pbrMetallicRoughness.setBaseColorFactor([$br, $bg, $bb, 1]);
+      if (s.haveBody && n.includes('paint')) {
+        m.pbrMetallicRoughness.setBaseColorFactor([s.body[0], s.body[1], s.body[2], 1]);
       }
       if (n.includes('tire')) {
-        m.pbrMetallicRoughness.setBaseColorFactor([$wr, $wg, $wb, 1]);
+        m.pbrMetallicRoughness.setBaseColorFactor([s.wheel[0], s.wheel[1], s.wheel[2], 1]);
       }
-      if ($lightsOn) {
-        if (n.includes('tail')) m.setEmissiveFactor([0.75, 0.0, 0.0]);
-        else if (n.includes('reverse')) m.setEmissiveFactor([0.85, 0.85, 0.85]);
-        else if (n.includes('signal')) m.setEmissiveFactor([0.85, 0.45, 0.0]);
-        else if (n.includes('lowbeam') || n.includes('foglight') || n.includes('vehiclelights')) {
-          m.setEmissiveFactor([1.0, 0.92, 0.75]);
-        }
+      if (n.includes('lowbeam') || n.includes('foglight') || n.includes('vehiclelights')) {
+        m.setEmissiveFactor(s.head ? [1.0, 0.92, 0.75] : [0, 0, 0]);
+      } else if (n.includes('tail')) {
+        m.setEmissiveFactor(s.brake ? [1.0, 0, 0] : (s.head ? [0.35, 0, 0] : [0, 0, 0]));
+      } else if (n.includes('reverse')) {
+        m.setEmissiveFactor(s.reverse ? [0.85, 0.85, 0.85] : [0, 0, 0]);
+      } else if (n.includes('signal_l')) {
+        m.setEmissiveFactor(s.left ? [1.0, 0.5, 0] : [0, 0, 0]);
+      } else if (n.includes('signal_r')) {
+        m.setEmissiveFactor(s.right ? [1.0, 0.5, 0] : [0, 0, 0]);
       }
     } catch (e) {}
   }
-}
-mv.addEventListener('load', applyAll);
-applyAll();
+};
+mv.addEventListener('load', function() {
+  window.krApply();
+  try { KRReady.postMessage('1'); } catch (e) {}
+});
+window.krApply();
 ''';
+  }
+
+  /// Push the current widget state into the already-loaded viewer.
+  void _push() {
+    final c = _controller;
+    if (c == null || !_ready) return;
+    c.runJavaScript('${_stateJs()}window.krApply&&window.krApply();');
+  }
+
+  @override
+  void didUpdateWidget(CarModel3D old) {
+    super.didUpdateWidget(old);
+    if (old.bodyColor != widget.bodyColor ||
+        old.wheelColor != widget.wheelColor ||
+        old.lamps != widget.lamps) {
+      _push();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Sits behind the (transparent) viewer during the WebGL warm-up so
-        // the centre isn't blank; the car covers it once the model paints.
+        // Behind the (transparent) viewer during WebGL warm-up; the car covers
+        // it once the model paints.
         const Center(
           child: SizedBox(
             width: 26,
             height: 26,
             child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: Color(0xFF5A5A5E),
-            ),
+                strokeWidth: 2, color: Color(0xFF5A5A5E)),
           ),
         ),
         Positioned.fill(child: _viewer()),
-        // CC-BY attribution — centred between the bottom pods so it doesn't
-        // collide with them; must remain visible while the model shows.
         const Positioned(
           left: 0,
           right: 0,
@@ -109,10 +175,7 @@ applyAll();
             child: Text(
               kVehicleModelCredit,
               style: TextStyle(
-                fontSize: 9,
-                color: Color(0xFF5A5A5E),
-                letterSpacing: 0.2,
-              ),
+                  fontSize: 9, color: Color(0xFF5A5A5E), letterSpacing: 0.2),
             ),
           ),
         ),
@@ -122,26 +185,27 @@ applyAll();
 
   Widget _viewer() {
     return ModelViewer(
-      // Re-create the viewer when any appearance input changes so it reloads
-      // and reapplies cleanly.
-      key: ValueKey(
-          '$src|${bodyColor?.toARGB32()}|${wheelColor.toARGB32()}|$lightsOn'),
-      src: src,
-      alt: alt,
-      // Transparent: no opaque rectangle "framing" the car — the dashboard
-      // and RPM glow show through behind it.
+      // Key only on src: appearance changes are pushed via JS, never a reload.
+      key: ValueKey(widget.src),
+      src: widget.src,
+      alt: widget.alt,
       backgroundColor: Colors.transparent,
-      relatedJs: _js(),
+      relatedJs: _initJs(),
+      javascriptChannels: {
+        JavascriptChannel('KRReady', onMessageReceived: (_) {
+          _ready = true;
+          _push();
+        }),
+      },
+      onWebViewCreated: (c) => _controller = c,
 
-      // ── Lighting & material quality ──────────────────────────────────
+      // Lighting & quality
       environmentImage: 'neutral',
       exposure: 1.05,
       shadowIntensity: 0.7,
       shadowSoftness: 1.0,
 
-      // ── Camera & motion ──────────────────────────────────────────────
-      // No auto-rotate — the car holds the hero angle and the user can still
-      // drag to orbit it manually (cameraControls).
+      // Camera & motion — no auto-rotate, still drag-to-orbit.
       cameraControls: true,
       disableZoom: false,
       autoRotate: false,

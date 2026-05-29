@@ -226,6 +226,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   double? _v(String key) => _latest[key]?.value;
 
+  /// True if any of [keys] is present in the live feed with a non-zero value.
+  bool _sig(List<String> keys) {
+    for (final k in keys) {
+      final s = _latest[k];
+      if (s != null && s.value != 0) return true;
+    }
+    return false;
+  }
+
+  /// Lamp state for the 3D car: the manual "Lights" toggle turns the running
+  /// lights on; live DBC body signals (when the Pi emits them) drive the rest.
+  /// Signal-key names here are the convention the sniffer should emit — they're
+  /// harmless until those samples start arriving.
+  LampState _lampState() => LampState(
+        head: _lightsOn ||
+            _sig(const [
+              'dbc.toyota.LIGHT_STALK.low_beam',
+              'dbc.toyota.LIGHT_STALK.high_beam',
+              'dbc.toyota.LIGHTS.headlights',
+            ]),
+        brake: _sig(const [
+          'dbc.toyota.BRAKE_MODULE.brake_pressed',
+          'obd.brake',
+        ]),
+        left: _sig(const [
+          'dbc.toyota.TURN_SIGNALS.left',
+          'dbc.toyota.BLINKERS.left',
+        ]),
+        right: _sig(const [
+          'dbc.toyota.TURN_SIGNALS.right',
+          'dbc.toyota.BLINKERS.right',
+        ]),
+        reverse: _sig(const ['dbc.toyota.GEAR_PACKET.reverse']),
+      );
+
   @override
   Widget build(BuildContext context) {
     final rpm = _v('obd.rpm') ?? 0;
@@ -274,7 +309,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         use3d: _car3d,
                         carColor: _carColor,
                         wheelColor: _wheelColor,
-                        lightsOn: _lightsOn,
+                        lamps: _lampState(),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -499,7 +534,7 @@ class _CarVisualizer extends StatelessWidget {
   final bool use3d;
   final Color? carColor;
   final Color wheelColor;
-  final bool lightsOn;
+  final LampState lamps;
   const _CarVisualizer({
     required this.coolantC,
     required this.intakeC,
@@ -509,7 +544,7 @@ class _CarVisualizer extends StatelessWidget {
     this.use3d = false,
     this.carColor,
     this.wheelColor = const Color(0xFF0A0A0A),
-    this.lightsOn = false,
+    this.lamps = const LampState(),
   });
 
   @override
@@ -535,7 +570,7 @@ class _CarVisualizer extends StatelessWidget {
                   alt: 'Vehicle 3D model',
                   bodyColor: carColor,
                   wheelColor: wheelColor,
-                  lightsOn: lightsOn,
+                  lamps: lamps,
                 ),
               ),
             )
