@@ -85,7 +85,10 @@ When you finish a chunk of work, before stopping:
 
 | Commit   | What                                                        |
 |----------|-------------------------------------------------------------|
-| _pending_| **Extractor expansion from the Axio field session.** OBD poller default set grew 14→20 PIDs: battery/charging voltage (0x42), absolute load (0x43), barometric pressure (0x33), catalyst temp B1S1/B1S2 (0x3C/0x3E, for the Axio's stored P0420), commanded λ (0x44). Sniffer `Signal` gained a `Field` enum (`Bytes` **+ new `Bit`**) so boolean body signals decode; added field-verified Axio profile: brake `0x224.0` bit5, stop-lamp `0x3B4.4` bit0, driver door `0x620.5` bit5 (→ `dbc.toyota.BRAKE.pressed` / `.STOP_LAMP.on` / `.DOORS.driver`). 45 tests pass (was 41). **Not yet deployed to the Pi or live-verified on a car.** |
+| `1ea7464`| **Extractor expansion from the Axio field session.** OBD poller default set grew 14→20 PIDs: battery/charging voltage (0x42), absolute load (0x43), barometric pressure (0x33), catalyst temp B1S1/B1S2 (0x3C/0x3E, for the Axio's stored P0420), commanded λ (0x44). Sniffer `Signal` gained a `Field` enum (`Bytes` **+ new `Bit`**) so boolean body signals decode; added field-verified Axio profile: brake `0x224.0` bit5, stop-lamp `0x3B4.4` bit0, driver door `0x620.5` bit5 (→ `dbc.toyota.BRAKE.pressed` / `.STOP_LAMP.on` / `.DOORS.driver`). 45 tests pass (was 41). **Deployed to the Pi 2026-05-29** (running c2114fd). |
+| `af5cab1`| `captures/` tracked: Axio analysis summaries + RE candump evidence (`axio-re-20260529/`), big blobs gitignored. |
+| `13b9b93`| **Mobile: honest 3-state connection status.** OFFLINE / LINKED (socket open, no fresh sample in 3 s) / LIVE (telemetry within 3 s). `ws_client` CONNECTED now fires on `WebSocketChannel.ready`; dashboard tracks `_lastSampleAt`. Fixes the ambiguous "LIVE". |
+| `b2abbb7`| **Mobile: per-vehicle 3D model + Settings car picker** (v0.9.0+12). `vehicle_catalog.dart` (Vitz w/ GLB, Axio E160 w/o GLB yet); user picks the car since VIN isn't OBD-readable. APK built: `mobile/build/app/outputs/flutter-apk/knight-rider-v0.9.0+12.apk` (shared with team). |
 
 ### Sibling repo `../knight-rider-cloud`
 
@@ -178,7 +181,7 @@ Both scripts take the input file as `sys.argv[1]`. Pipeline for any future
 capture: `scp` buffer.sqlite to Windows, `python decode_buffer.py …`, then
 `python generate_report.py ….json`.
 
-Test coverage: 41 Rust unit tests + 1 Flutter widget test + 8 cloud pytest
+Test coverage: 45 Rust unit tests + 1 Flutter widget test + 8 cloud pytest
 tests, all passing.
 
 ---
