@@ -81,6 +81,12 @@ When you finish a chunk of work, before stopping:
 | `de3a303`| Car **lights** (emissive on lamp materials) + **wheel colour** (default black) pickers; calm offline banner (no raw SocketException); GLB optimised `gltf-transform weld+prune` 3.22→2.07 MB (needed npm 11.6.2→11.16.0 for the ECOMPROMISED bug). |
 | _pending_| Dark launch splash (was white); **next:** wire lights to live DBC signals. |
 
+#### Toyota Axio field session + extractor expansion (2026-05-29)
+
+| Commit   | What                                                        |
+|----------|-------------------------------------------------------------|
+| _pending_| **Extractor expansion from the Axio field session.** OBD poller default set grew 14→20 PIDs: battery/charging voltage (0x42), absolute load (0x43), barometric pressure (0x33), catalyst temp B1S1/B1S2 (0x3C/0x3E, for the Axio's stored P0420), commanded λ (0x44). Sniffer `Signal` gained a `Field` enum (`Bytes` **+ new `Bit`**) so boolean body signals decode; added field-verified Axio profile: brake `0x224.0` bit5, stop-lamp `0x3B4.4` bit0, driver door `0x620.5` bit5 (→ `dbc.toyota.BRAKE.pressed` / `.STOP_LAMP.on` / `.DOORS.driver`). 45 tests pass (was 41). **Not yet deployed to the Pi or live-verified on a car.** |
+
 ### Sibling repo `../knight-rider-cloud`
 
 | Commit   | What                                                        |
@@ -180,21 +186,36 @@ tests, all passing.
 ## Up next (priority order)
 
 ### 0. 3D car live-state + renderer (current focus, 2026-05-29)
-- **Wire lights to live DBC signals** (in progress). App side: dashboard derives
-  lamp state from signal keys and drives `CarModel3D` lamps live; needs the
-  WebView to update via `runJavaScript` (NOT key-reload — reloading per signal
-  change = the 30s warm-up each time). Pi side: sniffer needs **bit-level**
-  signal support (current `Signal` is byte-aligned only) + the Toyota
-  light/turn/brake CAN messages — exact IDs/bits unknown without the car/DBC,
-  so add as a field-verify scaffold. Manual Settings "Lights" toggle stays as
-  override/demo.
+- **Pi side DONE (pending deploy):** sniffer now has bit-level (`Field::Bit`)
+  support + a field-verified Toyota Axio profile (brake `0x224.0` bit5, stop-lamp
+  `0x3B4.4` bit0, driver door `0x620.5` bit5). **Key field finding:** exterior
+  lighting (turn/hazard/headlight) is **gatewayed off the OBD-II bus** on the
+  Axio — only brake + door are recoverable. So *live* lamp state from CAN = brake
+  + door only; turn/headlights stay on the manual Settings override forever.
+  Full map: `captures/axio-re-20260529/FINDINGS.md`. **TODO: deploy to Pi +
+  live-verify** (press brake → `dbc.toyota.BRAKE.pressed` flips to 1).
+- **App side (next):** dashboard should consume `dbc.toyota.BRAKE.pressed` /
+  `.DOORS.driver` and drive `CarModel3D` brake-light + door live via
+  `runJavaScript` (NOT key-reload — that re-triggers the 30s warm-up).
+- **Renderer decision:** still open — Filament (`thermion`) vs `model_viewer_plus`.
 - **Renderer decision:** evaluate native Filament (`thermion`) vs the current
   `model_viewer_plus` WebView. WebView costs the cold-start delay, no bloom (so
   lamps look "full-bright" not glowing), and can't transform nodes (blocks
   animated doors). Filament would fix all three but is a bigger integration.
   See `docs/SCALING.md` "3D model load time" + "live model state".
 
-### 1. Field test of the extended binary tonight (immediate)
+### ✅ DONE 2026-05-29 — Axio field session (was items 1 & 2)
+- **Extended binary field-tested on a Toyota Corolla Axio E160.** Standard OBD-II
+  works; all 14 (now 20) PIDs decode. Stored DTC **P0420** (catalyst efficiency
+  B1). Battery/alternator confirmed via PID 0x42 (11.89 V off → 14.10 V running).
+  VIN **not** OBD-readable (Mode 09 PID 02 unsupported, UDS 22F190 service-not-
+  supported) — see [[obd-vehicle-id-constraint]] memory; cal-ID = `31254100`.
+- **Courier loop verified end-to-end on the 14-PID binary.** Phone LAN dashboard
+  showed live RPM + P0420; courier drained **453 batches Pi→phone→cloud**,
+  confirmed in Railway Postgres (`device 65897622…` count 453, idempotent).
+- Captures: `captures/axio-only-20260529.*` + `captures/axio-re-20260529/`.
+
+### 1. (superseded — see DONE above) Field test of the extended binary
 Binary is built and **already running on the Pi at
 `/home/kitt/KnightRider/target/release/knight-rider`** as of 2026-05-28
 ~15:45 UTC, waiting for CAN traffic. When the Pi plugs into the Vitz:

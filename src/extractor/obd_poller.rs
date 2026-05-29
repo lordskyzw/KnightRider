@@ -36,8 +36,11 @@ use crate::extractor::SampleSender;
 
 /// PID set polled by default if the caller does not override.
 ///
-/// Verified-supported on a Toyota Vitz DBA-NSP130 (Mode 01 PID 00 bitmap
-/// `BE 3F A8 13`).
+/// Superset verified across the Toyota Vitz DBA-NSP130 (Mode 01 PID 00 bitmap
+/// `BE 3F A8 13`, 2026-05-28) and Corolla Axio E160 (2026-05-29). The Axio scan
+/// added battery/charging voltage, catalyst temps (relevant to its stored
+/// P0420), barometric pressure, and commanded lambda. A PID a given ECU doesn't
+/// support just yields no response and the loop moves on.
 pub const DEFAULT_PIDS: &[ObdPid] = &[
     ObdPid::EngineRpm,
     ObdPid::VehicleSpeed,
@@ -53,6 +56,12 @@ pub const DEFAULT_PIDS: &[ObdPid] = &[
     ObdPid::O2SensorBank1Sensor2,
     ObdPid::RunTimeSinceStart,
     ObdPid::FuelTankLevel,
+    ObdPid::BatteryVoltage,
+    ObdPid::AbsoluteLoadValue,
+    ObdPid::BarometricPressure,
+    ObdPid::CatalystTempBank1Sensor1,
+    ObdPid::CatalystTempBank1Sensor2,
+    ObdPid::CommandedEquivalenceRatio,
 ];
 
 #[derive(Debug, Clone)]
@@ -330,8 +339,12 @@ pub fn signal_name(pid: ObdPid) -> &'static str {
         ObdPid::O2SensorBank1Sensor2 => "obd.o2_b1s2_v",
         ObdPid::RunTimeSinceStart => "obd.run_time_s",
         ObdPid::FuelTankLevel => "obd.fuel_level",
+        ObdPid::BarometricPressure => "obd.baro_pressure",
+        ObdPid::CatalystTempBank1Sensor1 => "obd.cat_temp_b1s1",
+        ObdPid::CatalystTempBank1Sensor2 => "obd.cat_temp_b1s2",
         ObdPid::BatteryVoltage => "obd.battery_v",
         ObdPid::AbsoluteLoadValue => "obd.abs_load",
+        ObdPid::CommandedEquivalenceRatio => "obd.commanded_lambda",
         ObdPid::AmbientAirTemperature => "obd.ambient_air_temp",
         ObdPid::OilTemperature => "obd.oil_temp",
         ObdPid::EngineFuelRate => "obd.fuel_rate",

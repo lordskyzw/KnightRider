@@ -122,7 +122,7 @@ async fn main() {
 
     if let Some(c) = can_sniff {
         let _sniffer = sniffer::spawn(c, tx.clone());
-        log::info!("can-sniffer spawned (Toyota Prius DBC subset)");
+        log::info!("can-sniffer spawned (Toyota Prius PT + Axio body profile)");
     }
 
     // ── Buffer writer ─────────────────────────────────────────────────────
