@@ -235,7 +235,7 @@ window.krApply = function() {
 window.krRecenter = function() {
   try {
     mv.cameraTarget = 'auto auto auto';
-    mv.cameraOrbit = '28deg 74deg 98%';
+    mv.cameraOrbit = '28deg 72deg 115%';
     mv.fieldOfView = '30deg';
     if (mv.jumpCameraToGoal) mv.jumpCameraToGoal();
   } catch (e) {}
@@ -354,9 +354,11 @@ window.krApply();
       autoRotate: widget.autoRotate,
       autoRotateDelay: 0,
       rotationPerSecond: '14deg',
-      cameraOrbit: '28deg 74deg 98%',
-      minCameraOrbit: 'auto 55deg auto',
-      maxCameraOrbit: 'auto 88deg auto',
+      // Pulled back (115%) so the car keeps a comfortable margin at every
+      // rotation angle, not just top-down. Recenter returns here.
+      cameraOrbit: '28deg 72deg 115%',
+      minCameraOrbit: 'auto 40deg 85%',
+      maxCameraOrbit: 'auto 90deg 220%',
       fieldOfView: '30deg',
       interpolationDecay: 220,
 
