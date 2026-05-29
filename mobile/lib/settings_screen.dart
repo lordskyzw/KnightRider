@@ -16,6 +16,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _cloudCtrl = TextEditingController();
   bool _loaded = false;
   bool _car3d = true;
+  bool _autoRotate = true;
   String _vehicleId = kDefaultVehicleId;
   Color _accent = AppPalette.accent;
   Color? _carColor; // null = factory paint
@@ -32,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final host = await PiConfig.host();
     final cloud = await PiConfig.cloudUrl();
     final car3d = await PiConfig.car3dEnabled();
+    final autoRotate = await PiConfig.carAutoRotate();
     final vehicleId = await PiConfig.vehicleId();
     final carColorArgb = await PiConfig.carColor();
     final wheelArgb = await PiConfig.wheelColor();
@@ -40,6 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _hostCtrl.text = host;
       _cloudCtrl.text = cloud;
       _car3d = car3d;
+      _autoRotate = autoRotate;
       _vehicleId = vehicleId;
       _carColor = carColorArgb == null ? null : Color(carColorArgb);
       _wheelColor = Color(wheelArgb);
@@ -70,6 +73,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await PiConfig.setHost(host);
     await PiConfig.setCloudUrl(cloud);
     await PiConfig.setCar3dEnabled(_car3d);
+    await PiConfig.setCarAutoRotate(_autoRotate);
     await PiConfig.setVehicleId(_vehicleId);
     await PiConfig.setAccentColor(_accent.toARGB32());
     await PiConfig.setCarColor(_carColor?.toARGB32());
@@ -144,6 +148,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   value: _car3d,
                   onChanged: (v) => setState(() => _car3d = v),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Auto-rotate',
+                      style: TextStyle(
+                          color: AppPalette.textHi,
+                          fontWeight: FontWeight.w600)),
+                  subtitle: const Text(
+                    'Slowly turn the car like a showroom turntable. '
+                    'Dragging always still orbits it.',
+                    style: TextStyle(fontSize: 12, color: AppPalette.textMid),
+                  ),
+                  value: _autoRotate,
+                  onChanged: _car3d ? (v) => setState(() => _autoRotate = v) : null,
                 ),
                 const SizedBox(height: 16),
                 const Divider(color: AppPalette.divider),

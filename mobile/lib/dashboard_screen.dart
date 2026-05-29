@@ -6,7 +6,6 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'app_theme.dart';
 import 'backlog_db.dart';
 import 'batches_screen.dart';
-import 'build_info.dart';
 import 'car_model.dart';
 import 'config.dart';
 import 'dtc_screen.dart';
@@ -48,10 +47,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   LinkStatus _shownStatus = LinkStatus.offline; // last status painted (for repaint trigger)
   final Map<String, Sample> _latest = {};
 
-  String? _vin;        // captured from session.vin sample
-  String? _ecuName;    // captured from session.ecu_name
-  String _buildLabel = '';
-  bool _car3d = false; // feature flag: 3D model vs SVG silhouette
+  bool _car3d = true; // 3D model by default (silhouette only as fallback)
+  bool _autoRotate = true; // showroom turntable
   VehicleModel _vehicle = vehicleById(null); // which car's model to render
   Color? _carColor;    // null = factory paint
   Color _wheelColor = const Color(0xFF0A0A0A); // default black
@@ -87,8 +84,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _boot() async {
     _host = await PiConfig.host();
     _cloudUrl = await PiConfig.cloudUrl();
-    _buildLabel = await BuildInfo.displayVersion();
     _car3d = await PiConfig.car3dEnabled();
+    _autoRotate = await PiConfig.carAutoRotate();
     _vehicle = vehicleById(await PiConfig.vehicleId());
     final carColorArgb = await PiConfig.carColor();
     _carColor = carColorArgb == null ? null : Color(carColorArgb);
@@ -154,9 +151,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // _uiTimer flushes to a single setState at ~12 Hz (see _boot).
     _lastSampleAt = DateTime.now();
     _latest[s.signal] = s;
-    // Session metadata samples carry the string payload in `unit`.
-    if (s.signal == 'session.vin') _vin = s.unit;
-    if (s.signal == 'session.ecu_name') _ecuName = s.unit;
     _dirty = true;
   }
 
@@ -205,6 +199,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _host = await PiConfig.host();
       _cloudUrl = await PiConfig.cloudUrl();
       final car3d = await PiConfig.car3dEnabled();
+      final autoRotate = await PiConfig.carAutoRotate();
       final vehicle = vehicleById(await PiConfig.vehicleId());
       final carColorArgb = await PiConfig.carColor();
       final wheelArgb = await PiConfig.wheelColor();
@@ -212,6 +207,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         setState(() {
           _car3d = car3d;
+          _autoRotate = autoRotate;
           _vehicle = vehicle;
           _carColor = carColorArgb == null ? null : Color(carColorArgb);
           _wheelColor = Color(wheelArgb);
@@ -280,8 +276,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'dbc.toyota.LIGHTS.headlights',
             ]),
         brake: _sig(const [
-          'dbc.toyota.BRAKE_MODULE.brake_pressed',
-          'obd.brake',
+          'dbc.toyota.BRAKE.pressed', // field-verified Axio brake switch
+          'dbc.toyota.STOP_LAMP.on',
         ]),
         left: _sig(const [
           'dbc.toyota.TURN_SIGNALS.left',
@@ -302,90 +298,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final intake = _v('obd.intake_air_temp');
     final battery = _v('obd.battery_v');
     final fuel = _v('obd.fuel_level');
-    final throttle = _v('obd.throttle') ?? 0;
-    final maf = _v('obd.maf');
-    final map = _v('obd.map');
     final dtcCount = _v('obd.dtc_count')?.toInt() ?? 0;
 
     final dbcRpm = _v('dbc.toyota.POWERTRAIN.engine_rpm');
     final liveRpm = (dbcRpm != null && dbcRpm > 0) ? dbcRpm : rpm;
+    final live = _linkStatus == LinkStatus.live;
 
     return Scaffold(
       backgroundColor: _T.bg,
       body: SafeArea(
         child: Column(
           children: [
-            _TopStatusBar(
-              status: _linkStatus,
-              host: _host,
-              vin: _vin,
-              buildLabel: _buildLabel,
-              onSettings: _openSettings,
-            ),
-            // Only nag about reaching the Pi when we genuinely can't (OFFLINE).
-            // LINKED (open but quiet) is normal — the amber pill says it all.
+            _TopStatusBar(status: _linkStatus, onSettings: _openSettings),
             if (_linkStatus == LinkStatus.offline && _wsError != null)
               _ErrorBanner(detail: _wsError!),
-            const SizedBox(height: 6),
+            // The car is the hero — it gets the lion's share of the screen.
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: Column(
-                  children: [
-                    _HeroRpm(value: liveRpm, isLive: dbcRpm != null && dbcRpm > 0),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: _CarVisualizer(
-                        coolantC: coolant,
-                        intakeC: intake,
-                        batteryV: battery,
-                        fuelPct: fuel,
-                        rpmForPulse: liveRpm,
-                        use3d: _car3d,
-                        vehicle: _vehicle,
-                        carColor: _carColor,
-                        wheelColor: _wheelColor,
-                        lamps: _lampState(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    _MetricBar(
-                      label: 'SPEED',
-                      value: speed,
-                      unit: 'km/h',
-                      max: 200,
-                    ),
-                    const SizedBox(height: 8),
-                    _MetricBar(
-                      label: 'THROTTLE',
-                      value: throttle,
-                      unit: '%',
-                      max: 100,
-                    ),
-                    if (maf != null) ...[
-                      const SizedBox(height: 8),
-                      _MetricBar(label: 'MAF', value: maf, unit: 'g/s', max: 60),
-                    ],
-                    if (map != null) ...[
-                      const SizedBox(height: 8),
-                      _MetricBar(label: 'MAP', value: map, unit: 'kPa', max: 110),
-                    ],
-                  ],
-                ),
+              child: _CarVisualizer(
+                rpmForPulse: liveRpm,
+                use3d: _car3d,
+                autoRotate: _autoRotate,
+                vehicle: _vehicle,
+                carColor: _carColor,
+                wheelColor: _wheelColor,
+                lamps: _lampState(),
               ),
             ),
-            _BottomStrip(
-              backlogTotal: _backlogTotal,
-              backlogPending: _backlogPending,
-              backlogUploaded: _backlogUploaded,
-              lastTick: _lastTick,
-              dtcCount: dtcCount,
-              ecuName: _ecuName,
-              onStored: () => _openBatches(BatchFilter.all),
-              onSynced: () => _openBatches(BatchFilter.uploaded),
-              onWait: () => _openBatches(BatchFilter.pending),
-              onDtc: _openDtc,
-              onMore: _openMore,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
+              child: Column(
+                children: [
+                  // One adaptive numeral: speed when moving, RPM when idling.
+                  _HeroMetric(rpm: liveRpm, speedKmh: speed, isLive: live),
+                  const SizedBox(height: 18),
+                  // One quiet row of secondary stats — no boxes.
+                  _StatRow(
+                    coolant: coolant, battery: battery,
+                    fuel: fuel, intake: intake, live: live,
+                  ),
+                  const SizedBox(height: 16),
+                  _ThinStatus(
+                    total: _backlogTotal,
+                    pending: _backlogPending,
+                    uploaded: _backlogUploaded,
+                    lastTick: _lastTick,
+                    dtcCount: dtcCount,
+                    onSync: () => _openBatches(BatchFilter.all),
+                    onDtc: _openDtc,
+                    onMore: _openMore,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -397,75 +360,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
 // ─── Top status bar ─────────────────────────────────────────────────────────
 class _TopStatusBar extends StatelessWidget {
   final LinkStatus status;
-  final String host;
-  final String? vin;
-  final String buildLabel;
   final VoidCallback onSettings;
-  const _TopStatusBar({
-    required this.status,
-    required this.host,
-    required this.vin,
-    required this.buildLabel,
-    required this.onSettings,
-  });
+  const _TopStatusBar({required this.status, required this.onSettings});
 
   @override
   Widget build(BuildContext context) {
     // Three honest states: OFFLINE (can't reach Pi), LINKED (reached the Pi but
-    // no fresh telemetry — e.g. ignition off), LIVE (data flowing now). Only
-    // LIVE pulses green, so "LIVE" reliably means you're seeing real RPMs.
+    // no fresh telemetry), LIVE (data flowing). Only LIVE pulses green. Host,
+    // VIN and build version are deliberately not here — they live in Settings.
     final (label, color) = switch (status) {
       LinkStatus.live => ('LIVE', _T.live),
       LinkStatus.linked => ('LINKED', _T.warning),
       LinkStatus.offline => ('OFFLINE', _T.accent),
     };
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 8, 10),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 14, 8, 6),
       child: Row(
         children: [
           _PulseDot(color: color, pulsing: status == LinkStatus.live),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           Text(label,
               style: TextStyle(
                 fontSize: 11, color: color,
-                fontWeight: FontWeight.w700, letterSpacing: 2.0,
-              )),
-          const SizedBox(width: 14),
-          const Icon(Icons.router_outlined, size: 13, color: _T.textMid),
-          const SizedBox(width: 5),
-          Text(host,
-              style: const TextStyle(
-                fontSize: 11, color: _T.textMid,
-                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700, letterSpacing: 2.5,
               )),
           const Spacer(),
-          if (vin != null) ...[
-            const Icon(Icons.fingerprint, size: 13, color: _T.textMid),
-            const SizedBox(width: 4),
-            Text(_shortVin(vin!),
-                style: const TextStyle(
-                  fontSize: 10, color: _T.textMid, fontFamily: 'monospace',
-                )),
-            const SizedBox(width: 10),
-          ],
-          Text(buildLabel,
-              style: const TextStyle(
-                fontSize: 10, color: _T.textLow, fontFamily: 'monospace',
-              )),
           IconButton(
-            iconSize: 18,
+            iconSize: 19,
             onPressed: onSettings,
-            icon: const Icon(Icons.settings, color: _T.textMid),
+            icon: const Icon(Icons.settings_outlined, color: _T.textMid),
             tooltip: 'Settings',
           ),
         ],
       ),
     );
-  }
-
-  String _shortVin(String v) {
-    if (v.length <= 8) return v;
-    return '${v.substring(0, 4)}…${v.substring(v.length - 4)}';
   }
 }
 
@@ -506,81 +434,63 @@ class _PulseDotState extends State<_PulseDot> with SingleTickerProviderStateMixi
   }
 }
 
-// ─── Hero RPM ───────────────────────────────────────────────────────────────
-class _HeroRpm extends StatelessWidget {
-  final double value;
+// ─── Hero metric — adaptive: speed when moving, RPM when idling ──────────────
+class _HeroMetric extends StatelessWidget {
+  final double rpm;
+  final double speedKmh;
   final bool isLive;
-  const _HeroRpm({required this.value, required this.isLive});
+  const _HeroMetric({
+    required this.rpm,
+    required this.speedKmh,
+    required this.isLive,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final moving = speedKmh > 3;
+    final value = moving ? speedKmh : rpm;
+    final label = moving ? 'KM/H' : 'RPM';
+    // Rest dim when there's no live data, so offline reads as 'asleep', not broken.
+    final color = isLive ? _T.textHi : _T.textLow;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: value),
-      duration: const Duration(milliseconds: 220),
+      duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
-      builder: (_, v, _) {
-        return Column(
-          children: [
-            Text(v.round().toString(),
-                style: const TextStyle(
-                  fontSize: 92, height: 0.95,
-                  color: _T.textHi, fontWeight: FontWeight.w200,
-                  letterSpacing: -3,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                )),
-            const SizedBox(height: 2),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('RPM',
-                    style: TextStyle(
-                      fontSize: 11, color: _T.textMid,
-                      letterSpacing: 3, fontWeight: FontWeight.w600,
-                    )),
-                if (isLive) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: _T.live.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    child: const Text('DBC 42 Hz',
-                        style: TextStyle(
-                          fontSize: 8, color: _T.live,
-                          letterSpacing: 1.5, fontWeight: FontWeight.w700,
-                        )),
-                  ),
-                ],
-              ],
-            ),
-          ],
-        );
-      },
+      builder: (_, v, _) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(v.round().toString(),
+              style: TextStyle(
+                fontSize: 80, height: 0.95, color: color,
+                fontWeight: FontWeight.w200, letterSpacing: -2,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              )),
+          const SizedBox(height: 4),
+          Text(label,
+              style: const TextStyle(
+                fontSize: 11, color: _T.textMid,
+                letterSpacing: 4, fontWeight: FontWeight.w600,
+              )),
+        ],
+      ),
     );
   }
 }
 
-// ─── Car + corner pods ──────────────────────────────────────────────────────
+// ─── Car (the hero) ─────────────────────────────────────────────────────────
 class _CarVisualizer extends StatelessWidget {
-  final double? coolantC;
-  final double? intakeC;
-  final double? batteryV;
-  final double? fuelPct;
   final double rpmForPulse;
   final bool use3d;
+  final bool autoRotate;
   final VehicleModel vehicle;
   final Color? carColor;
   final Color wheelColor;
   final LampState lamps;
   const _CarVisualizer({
-    required this.coolantC,
-    required this.intakeC,
-    required this.batteryV,
-    required this.fuelPct,
     required this.rpmForPulse,
     required this.vehicle,
     this.use3d = false,
+    this.autoRotate = true,
     this.carColor,
     this.wheelColor = const Color(0xFF0A0A0A),
     this.lamps = const LampState(),
@@ -590,37 +500,32 @@ class _CarVisualizer extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (_, c) {
       final w = c.maxWidth;
-      final carW = w * 0.40;
-      final carH = c.maxHeight.clamp(180.0, 320.0);
+      final carH = c.maxHeight.clamp(180.0, 360.0);
+      final glowSize = (w * 0.72).clamp(180.0, 340.0).toDouble();
       return Stack(
         alignment: Alignment.center,
         children: [
-          // glow behind the car, pulses with RPM
-          Center(child: _RpmGlow(rpm: rpmForPulse, size: carW * 1.6)),
-          // Centre: rotatable 3D model when enabled AND this vehicle has a GLB;
-          // otherwise the flat SVG silhouette (also the safe WebView fallback).
+          // Soft glow behind the car; brightens gently with RPM.
+          Center(child: _RpmGlow(rpm: rpmForPulse, size: glowSize)),
+          // The car fills the hero space: rotatable 3D model when enabled AND
+          // this vehicle has a GLB; otherwise the flat SVG silhouette.
           if (use3d && vehicle.has3d)
-            Align(
-              // Lifted slightly to fill the space below the RPM readout and
-              // sized large so the car reads as the centrepiece.
-              alignment: const Alignment(0, -0.10),
-              child: SizedBox(
-                width: w * 0.88, height: carH * 1.20,
-                child: CarModel3D(
-                  src: vehicle.glbAsset!,
-                  alt: '${vehicle.name} 3D model',
-                  credit: vehicle.credit ?? '',
-                  materials: vehicle.materials,
-                  bodyColor: carColor,
-                  wheelColor: wheelColor,
-                  lamps: lamps,
-                ),
+            Positioned.fill(
+              child: CarModel3D(
+                src: vehicle.glbAsset!,
+                alt: '${vehicle.name} 3D model',
+                credit: vehicle.credit ?? '',
+                materials: vehicle.materials,
+                autoRotate: autoRotate,
+                bodyColor: carColor,
+                wheelColor: wheelColor,
+                lamps: lamps,
               ),
             )
           else
             Center(
               child: SizedBox(
-                width: carW, height: carH,
+                width: w * 0.55, height: carH,
                 child: SvgPicture.asset(
                   vehicle.silhouetteAsset,
                   fit: BoxFit.contain,
@@ -628,11 +533,10 @@ class _CarVisualizer extends StatelessWidget {
                 ),
               ),
             ),
-          // When 3D is on but this car has no GLB yet, say so rather than
-          // silently showing a placeholder silhouette.
+          // 3D on but no GLB for this car yet — say so rather than imply it's real.
           if (use3d && !vehicle.has3d)
             Positioned(
-              left: 0, right: 0, bottom: 4,
+              left: 0, right: 0, bottom: 6,
               child: Center(
                 child: Text(
                   '${vehicle.name} · 3D model coming soon',
@@ -641,51 +545,28 @@ class _CarVisualizer extends StatelessWidget {
                 ),
               ),
             ),
-          // 4 corner pods
-          Positioned(
-            left: 0, top: 0,
-            child: _CornerPod(
-              label: 'COOLANT',
-              value: coolantC == null ? '—' : coolantC!.round().toString(),
-              unit: '°C',
-              color: _coolantColor(coolantC),
-            ),
-          ),
-          Positioned(
-            right: 0, top: 0,
-            child: _CornerPod(
-              label: 'INTAKE',
-              value: intakeC == null ? '—' : intakeC!.round().toString(),
-              unit: '°C',
-              color: _T.cool,
-              align: CrossAxisAlignment.end,
-            ),
-          ),
-          Positioned(
-            left: 0, bottom: 0,
-            child: _CornerPod(
-              label: 'BATTERY',
-              value: batteryV == null ? '—' : batteryV!.toStringAsFixed(1),
-              unit: 'V',
-              color: _batteryColor(batteryV),
-            ),
-          ),
-          Positioned(
-            right: 0, bottom: 0,
-            child: _CornerPod(
-              label: 'FUEL',
-              value: fuelPct == null ? '—' : fuelPct!.round().toString(),
-              unit: '%',
-              color: _T.textHi,
-              align: CrossAxisAlignment.end,
-            ),
-          ),
         ],
       );
     });
   }
+}
 
-  Color _coolantColor(double? c) {
+// ─── Quiet stat row (replaces the floating corner pods) ─────────────────────
+class _StatRow extends StatelessWidget {
+  final double? coolant; // °C
+  final double? battery; // V
+  final double? fuel;    // %
+  final double? intake;  // °C
+  final bool live;
+  const _StatRow({
+    required this.coolant,
+    required this.battery,
+    required this.fuel,
+    required this.intake,
+    required this.live,
+  });
+
+  static Color _coolantColor(double? c) {
     if (c == null) return _T.textMid;
     if (c >= 105) return _T.accent;
     if (c >= 100) return _T.warning;
@@ -693,11 +574,68 @@ class _CarVisualizer extends StatelessWidget {
     return _T.cool;
   }
 
-  Color _batteryColor(double? v) {
+  static Color _batteryColor(double? v) {
     if (v == null) return _T.textMid;
     if (v < 11.8) return _T.accent;
     if (v < 12.4) return _T.warning;
     return _T.live;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _StatCell(
+          label: 'COOLANT',
+          value: coolant == null ? '—' : '${coolant!.round()}°',
+          color: live ? _coolantColor(coolant) : _T.textLow,
+        ),
+        _StatCell(
+          label: 'BATTERY',
+          value: battery == null ? '—' : '${battery!.toStringAsFixed(1)}v',
+          color: live ? _batteryColor(battery) : _T.textLow,
+        ),
+        _StatCell(
+          label: 'FUEL',
+          value: fuel == null ? '—' : '${fuel!.round()}%',
+          color: live ? _T.textHi : _T.textLow,
+        ),
+        _StatCell(
+          label: 'INTAKE',
+          value: intake == null ? '—' : '${intake!.round()}°',
+          color: live ? _T.textHi : _T.textLow,
+        ),
+      ],
+    );
+  }
+}
+
+class _StatCell extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _StatCell({required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(value,
+            style: TextStyle(
+              fontSize: 20, color: color, fontWeight: FontWeight.w400,
+              height: 1.0,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            )),
+        const SizedBox(height: 5),
+        Text(label,
+            style: const TextStyle(
+              fontSize: 9, color: _T.textMid,
+              letterSpacing: 1.5, fontWeight: FontWeight.w600,
+            )),
+      ],
+    );
   }
 }
 
@@ -730,163 +668,23 @@ class _RpmGlow extends StatelessWidget {
   }
 }
 
-class _CornerPod extends StatelessWidget {
-  final String label;
-  final String value;
-  final String unit;
-  final Color color;
-  final CrossAxisAlignment align;
-  const _CornerPod({
-    required this.label,
-    required this.value,
-    required this.unit,
-    required this.color,
-    this.align = CrossAxisAlignment.start,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 84,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: _T.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _T.divider, width: 1),
-      ),
-      child: Column(
-        crossAxisAlignment: align,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label,
-              style: const TextStyle(
-                fontSize: 9, color: _T.textMid,
-                letterSpacing: 1.5, fontWeight: FontWeight.w600,
-              )),
-          const SizedBox(height: 4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(value,
-                  style: TextStyle(
-                    fontSize: 24, color: color,
-                    fontWeight: FontWeight.w400, height: 1.0,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  )),
-              const SizedBox(width: 2),
-              Text(unit,
-                  style: const TextStyle(
-                    fontSize: 10, color: _T.textMid,
-                  )),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Metric bar (linear gauges below the car) ───────────────────────────────
-class _MetricBar extends StatelessWidget {
-  final String label;
-  final double value;
-  final String unit;
-  final double max;
-  const _MetricBar({
-    required this.label, required this.value,
-    required this.unit, required this.max,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final fraction = (value / max).clamp(0.0, 1.0);
-    return Row(
-      children: [
-        SizedBox(
-          width: 78,
-          child: Text(label,
-              style: const TextStyle(
-                fontSize: 10, color: _T.textMid,
-                letterSpacing: 1.5, fontWeight: FontWeight.w600,
-              )),
-        ),
-        Expanded(
-          child: Container(
-            height: 6,
-            decoration: BoxDecoration(
-              color: _T.surface,
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: Stack(
-                children: [
-                  TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 0, end: fraction),
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    builder: (_, f, _) => FractionallySizedBox(
-                      widthFactor: f,
-                      child: Container(color: _T.textHi),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        SizedBox(
-          width: 92,
-          child: FittedBox(
-            alignment: Alignment.centerRight,
-            fit: BoxFit.scaleDown,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(value.toStringAsFixed(value > 99 ? 0 : 1),
-                    style: const TextStyle(
-                      fontSize: 14, color: _T.textHi,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    )),
-                const SizedBox(width: 3),
-                Text(unit,
-                    style: const TextStyle(fontSize: 10, color: _T.textMid)),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Bottom strip ───────────────────────────────────────────────────────────
-class _BottomStrip extends StatelessWidget {
-  final int backlogTotal;
-  final int backlogPending;
-  final int backlogUploaded;
+// ─── Thin status line (replaces the heavy tab strip) ────────────────────────
+class _ThinStatus extends StatelessWidget {
+  final int total;
+  final int pending;
+  final int uploaded;
   final UploadTick? lastTick;
   final int dtcCount;
-  final String? ecuName;
-  final VoidCallback onStored;
-  final VoidCallback onSynced;
-  final VoidCallback onWait;
+  final VoidCallback onSync;
   final VoidCallback onDtc;
   final VoidCallback onMore;
-  const _BottomStrip({
-    required this.backlogTotal,
-    required this.backlogPending,
-    required this.backlogUploaded,
+  const _ThinStatus({
+    required this.total,
+    required this.pending,
+    required this.uploaded,
     required this.lastTick,
     required this.dtcCount,
-    required this.ecuName,
-    required this.onStored,
-    required this.onSynced,
-    required this.onWait,
+    required this.onSync,
     required this.onDtc,
     required this.onMore,
   });
@@ -900,147 +698,84 @@ class _BottomStrip extends StatelessWidget {
       UploadTick(error: final e?) when e.isNotEmpty => _T.accent,
       _ => _T.textMid,
     };
-    final dtcColor = dtcCount > 0 ? _T.warning : _T.textMid;
+    final syncText = total == 0
+        ? 'no data yet'
+        : (pending == 0 ? '$total synced' : '$uploaded / $total synced');
+    final dtcOk = dtcCount == 0;
 
-    return Container(
-      decoration: const BoxDecoration(
-        color: _T.surface,
-        border: Border(top: BorderSide(color: _T.divider)),
-      ),
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: _StatButton(
-              onTap: onStored,
-              child: _Stat(icon: Icons.storage,
-                  value: '$backlogTotal', label: 'STORED'),
-            ),
-          ),
-          const _Divider(),
-          Expanded(
-            child: _StatButton(
-              onTap: onSynced,
-              child: _Stat(icon: Icons.cloud_upload,
-                  value: '$backlogUploaded', label: 'SYNCED',
-                  color: cloudColor),
-            ),
-          ),
-          const _Divider(),
-          Expanded(
-            child: _StatButton(
-              onTap: onWait,
-              child: _Stat(icon: Icons.pending,
-                  value: '$backlogPending', label: 'WAIT'),
-            ),
-          ),
-          const _Divider(),
-          Expanded(
-            child: _StatButton(
-              onTap: onDtc,
-              child: _Stat(icon: Icons.warning_amber,
-                  value: '$dtcCount', label: 'DTC', color: dtcColor),
-            ),
-          ),
-          const _Divider(),
-          _StatButton(
-            onTap: onMore,
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.expand_less, size: 16, color: _T.textMid),
-                  SizedBox(height: 2),
-                  Text('MORE',
-                      style: TextStyle(
-                        fontSize: 8, color: _T.textMid,
-                        letterSpacing: 1.2, fontWeight: FontWeight.w700,
-                      )),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatButton extends StatelessWidget {
-  final Widget child;
-  final VoidCallback onTap;
-  const _StatButton({required this.child, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        splashColor: _T.surface2,
-        highlightColor: _T.surface2,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  final Color? color;
-  const _Stat({required this.icon, required this.value, required this.label,
-               this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = color ?? _T.textHi;
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        Container(height: 1, color: _T.divider),
+        const SizedBox(height: 6),
         Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 11, color: c),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                value,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13, color: c,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
+            _StatusChip(onTap: onSync, dotColor: cloudColor, text: syncText),
+            const Spacer(),
+            _StatusChip(
+              onTap: onDtc,
+              icon: dtcOk ? Icons.verified_outlined : Icons.warning_amber_rounded,
+              text: dtcOk ? 'no faults' : '$dtcCount DTC',
+              color: dtcOk ? _T.textMid : _T.accent,
+            ),
+            const SizedBox(width: 2),
+            IconButton(
+              onPressed: onMore,
+              iconSize: 18,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.more_horiz, color: _T.textMid),
+              tooltip: 'All signals',
             ),
           ],
         ),
-        const SizedBox(height: 1),
-        Text(label,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 8, color: _T.textMid,
-              letterSpacing: 1.2, fontWeight: FontWeight.w700,
-            )),
       ],
     );
   }
 }
 
-class _Divider extends StatelessWidget {
-  const _Divider();
+/// A quiet, tappable status chip: either a coloured heartbeat dot (sync) or a
+/// small icon (DTC), followed by text.
+class _StatusChip extends StatelessWidget {
+  final VoidCallback onTap;
+  final String text;
+  final IconData? icon;
+  final Color? color;
+  final Color? dotColor;
+  const _StatusChip({
+    required this.onTap,
+    required this.text,
+    this.icon,
+    this.color,
+    this.dotColor,
+  });
+
   @override
-  Widget build(BuildContext context) => Container(
-        width: 1, height: 16, color: _T.divider,
-        margin: const EdgeInsets.symmetric(horizontal: 6),
-      );
+  Widget build(BuildContext context) {
+    final c = color ?? _T.textMid;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (dotColor != null)
+              Container(width: 6, height: 6, decoration: BoxDecoration(
+                  shape: BoxShape.circle, color: dotColor))
+            else if (icon != null)
+              Icon(icon, size: 13, color: c),
+            const SizedBox(width: 7),
+            Text(text,
+                style: TextStyle(
+                  fontSize: 11.5, color: c,
+                  letterSpacing: 0.3, fontWeight: FontWeight.w500,
+                )),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ─── Error banner (WS issues) ───────────────────────────────────────────────

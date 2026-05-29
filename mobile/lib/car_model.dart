@@ -12,6 +12,11 @@ import 'vehicle_catalog.dart';
 /// this constant (and the attribution) changes then.
 const String kVehicleModelAsset = 'assets/cars/vitz.glb';
 
+/// Test seam: `flutter test` has no `WebViewPlatform`, so a real `ModelViewer`
+/// asserts on build. Set this true in widget tests to render a stub instead.
+/// Always false in the app — the device experience is the real 3D model.
+bool debugDisableCarWebView = false;
+
 /// CC-BY attribution required by the model's licence. Must stay visible
 /// wherever the model is shown. Source:
 /// https://sketchfab.com/3d-models/toyota-vitz-0d1428782a5f4cf69efd8a15744e1d49
@@ -63,6 +68,8 @@ class CarModel3D extends StatefulWidget {
   final String credit;
   /// Material-name map for this GLB (which materials are body/wheel/lamps).
   final MaterialMap materials;
+  /// Gentle showroom turntable rotation. Drag-to-orbit still works either way.
+  final bool autoRotate;
   final Color? bodyColor;
   final Color wheelColor;
   final LampState lamps;
@@ -73,6 +80,7 @@ class CarModel3D extends StatefulWidget {
     this.alt = 'Vehicle 3D model',
     this.credit = kVehicleModelCredit,
     this.materials = const MaterialMap(),
+    this.autoRotate = true,
     this.bodyColor,
     this.wheelColor = const Color(0xFF000000),
     this.lamps = const LampState(),
@@ -179,6 +187,7 @@ window.krApply();
 
   @override
   Widget build(BuildContext context) {
+    if (debugDisableCarWebView) return const SizedBox.expand();
     return Stack(
       children: [
         // Behind the (transparent) viewer during WebGL warm-up; the car covers
@@ -230,10 +239,12 @@ window.krApply();
       shadowIntensity: 0.7,
       shadowSoftness: 1.0,
 
-      // Camera & motion — no auto-rotate, still drag-to-orbit.
+      // Camera & motion — gentle showroom turntable (toggleable); drag still orbits.
       cameraControls: true,
       disableZoom: false,
-      autoRotate: false,
+      autoRotate: widget.autoRotate,
+      autoRotateDelay: 0,
+      rotationPerSecond: '14deg',
       cameraOrbit: '28deg 74deg 98%',
       minCameraOrbit: 'auto 55deg auto',
       maxCameraOrbit: 'auto 88deg auto',

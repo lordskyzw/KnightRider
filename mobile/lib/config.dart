@@ -12,6 +12,7 @@ class PiConfig {
   static const _kWheelColor = 'wheel_color';
   static const _kLightsOn = 'lights_on';
   static const _kVehicleId = 'vehicle_id';
+  static const _kAutoRotate = 'car_auto_rotate';
 
   // Matches the Pi's hostname set during the 2026-05-28 field-setup session.
   // mDNS resolves this on any device on the same LAN/hotspot, regardless of
@@ -112,6 +113,18 @@ class PiConfig {
   static Future<void> setVehicleId(String id) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kVehicleId, id);
+  }
+
+  /// Slowly auto-rotate the 3D car model (showroom turntable). On by default;
+  /// dragging always still orbits regardless.
+  static Future<bool> carAutoRotate() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kAutoRotate) ?? true;
+  }
+
+  static Future<void> setCarAutoRotate(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAutoRotate, value);
   }
 
   static Future<int> backlogCursor() async {
