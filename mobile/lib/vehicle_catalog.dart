@@ -45,10 +45,9 @@ const List<VehicleModel> kVehicles = [
   VehicleModel(
     id: 'axio',
     name: 'Toyota Corolla Axio (E160)',
-    // No axio.glb bundled yet — drop one in assets/cars/ + set this to wire it.
-    glbAsset: null,
+    glbAsset: 'assets/cars/axio.glb',
     silhouetteAsset: _kGenericSilhouette,
-    credit: null,
+    credit: 'Corolla Axio by taeemtasbi · CC BY 4.0',
   ),
 ];
 
