@@ -15,5 +15,15 @@ workflows:
       - name: Build iOS (unsigned)
         working_directory: mobile
         script: flutter build ios --release --no-codesign
+      - name: Package unsigned IPA for sideloading
+        working_directory: mobile
+        script: |
+          set -euo pipefail
+          OUT=build/ios/ipa
+          rm -rf "$OUT" && mkdir -p "$OUT/Payload"
+          cp -R build/ios/iphoneos/Runner.app "$OUT/Payload/"
+          (cd "$OUT" && zip -qr KnightRider-unsigned.ipa Payload)
+          ls -lh "$OUT/KnightRider-unsigned.ipa"
     artifacts:
+      - mobile/build/ios/ipa/KnightRider-unsigned.ipa
       - mobile/build/ios/iphoneos/Runner.app
