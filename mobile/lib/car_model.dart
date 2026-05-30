@@ -272,6 +272,7 @@ window.krRecenter = function(rotate) {
     mv.fieldOfView = '30deg';
     mv.autoRotate = !!rotate;
     if (mv.jumpCameraToGoal) mv.jumpCameraToGoal();
+    window.krRecord && window.krRecord();
   } catch (e) {}
 };
 // Preset zoom: keep the current angle, set the radius %, and toggle rotation.
@@ -281,6 +282,7 @@ window.krZoom = function(pct, rotate) {
     mv.cameraOrbit = o.theta + 'rad ' + o.phi + 'rad ' + pct + '%';
     mv.autoRotate = rotate;
     if (mv.jumpCameraToGoal) mv.jumpCameraToGoal();
+    window.krRecord && window.krRecord();
   } catch (e) {}
 };
 // Restore an exact prior orbit INSTANTLY (no animation). Used after a WebView
@@ -295,15 +297,22 @@ mv.addEventListener('load', function() {
   window.krSnapshot(); window.krPlace(); window.krApply();
   try { KRReady.postMessage('1'); } catch (e) {}
 });
-// Report the live orbit to Flutter (throttled) so it can be restored verbatim
-// if the WKWebView reloads. This is the only camera-state source of truth.
-let __krCamT = 0;
-mv.addEventListener('camera-change', function(){
-  const now = Date.now(); if (now - __krCamT < 250) return; __krCamT = now;
+// Record the orbit to Flutter so it can be restored verbatim if the WKWebView
+// reloads. ONLY deliberate user moves (drag/pinch) are recorded — auto-rotate
+// and the reload's own init fire camera-change with source!=='user-interaction'
+// and must NOT clobber the saved orbit (that was the residual mode-toggle jump).
+// Programmatic preset moves post explicitly from krZoom/krRecenter instead.
+window.krRecord = function(){
   try {
     const o = mv.getCameraOrbit();
     KRCam.postMessage(o.theta + 'rad ' + o.phi + 'rad ' + o.radius + 'm');
   } catch (e) {}
+};
+let __krCamT = 0;
+mv.addEventListener('camera-change', function(e){
+  if (!e.detail || e.detail.source !== 'user-interaction') return;
+  const now = Date.now(); if (now - __krCamT < 200) return; __krCamT = now;
+  window.krRecord();
 });
 document.querySelectorAll('.kr-hot').forEach(function(el){
   el.addEventListener('click', function(){
@@ -315,13 +324,24 @@ window.krApply();
   }
 
   /// Push the current widget state into the already-loaded viewer (no reload).
-  /// Also asserts auto-rotate (off in X-ray / above 1x) WITHOUT moving the
-  /// camera, so toggling X-ray feels like a continuation of the current view.
-  void _push() {
+  /// Captures the exact current orbit up front; when [repin] is set (mode /
+  /// auto-rotate changes) it re-pins that orbit instantly AFTER toggling
+  /// auto-rotate, so flipping the rotation property can't snap the camera to
+  /// its goal — the toggle is a pure in-place material change.
+  void _push({bool repin = false}) {
     final c = _controller;
     if (c == null || !_ready) return;
-    c.runJavaScript('${_stateJs()}window.krApply&&window.krApply();'
-        'try{document.querySelector("model-viewer").autoRotate=$_autoRotateEffective;}catch(e){}');
+    final pin = repin
+        ? 'try{if(o){m.cameraOrbit=o.theta+"rad "+o.phi+"rad "+o.radius+"m";'
+            'if(m.jumpCameraToGoal)m.jumpCameraToGoal();}}catch(e){}'
+        : '';
+    c.runJavaScript(
+      '(function(){var m=document.querySelector("model-viewer");var o=null;'
+      'try{o=m.getCameraOrbit();}catch(e){}'
+      '${_stateJs()}window.krApply&&window.krApply();'
+      'try{m.autoRotate=$_autoRotateEffective;}catch(e){}'
+      '$pin})();',
+    );
   }
 
   void _recenter() {
@@ -338,13 +358,16 @@ window.krApply();
     // none of it touches the camera, so toggling X-ray is a pure in-place
     // material change. autoRotate is included so the Settings toggle applies at
     // once (previously it only took effect on the next unrelated state change).
-    if (old.bodyColor != widget.bodyColor ||
+    final modeChange =
+        old.inDepth != widget.inDepth || old.autoRotate != widget.autoRotate;
+    if (modeChange ||
+        old.bodyColor != widget.bodyColor ||
         old.wheelColor != widget.wheelColor ||
         old.lamps != widget.lamps ||
-        old.inDepth != widget.inDepth ||
-        old.autoRotate != widget.autoRotate ||
         !mapEquals(old.sensorStatus, widget.sensorStatus)) {
-      _push();
+      // Only mode / rotation changes re-pin the camera; colour & live-status
+      // pushes leave it completely alone (and don't stutter auto-rotate).
+      _push(repin: modeChange);
     }
   }
 
@@ -417,7 +440,7 @@ window.krApply();
         // load there's no saved orbit, so the initial framing stands.
         JavascriptChannel('KRReady', onMessageReceived: (_) {
           _ready = true;
-          _push();
+          _push(); // no re-pin: getCameraOrbit here is the reset framing
           final o = _lastOrbit;
           if (o != null) {
             _controller?.runJavaScript(
