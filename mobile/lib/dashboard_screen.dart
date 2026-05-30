@@ -263,6 +263,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
+      // Close by dragging the tray down only — tapping outside must NOT dismiss
+      // it (that abrupt uncover was reloading the WebView and moving the camera).
+      isDismissible: false,
+      enableDrag: true,
       builder: (_) => _SensorSheet(node: node, latest: Map.of(_latest)),
     );
   }

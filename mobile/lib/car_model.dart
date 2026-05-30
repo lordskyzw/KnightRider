@@ -466,6 +466,10 @@ window.krApply();
       // Camera & motion — gentle showroom turntable (toggleable); drag still orbits.
       cameraControls: true,
       disableZoom: false,
+      // A plain tap must never move the camera — only drag / pinch / the zoom
+      // pills / recenter do. disableTap stops model-viewer treating taps as
+      // camera interactions (hotspot button clicks are unaffected).
+      disableTap: true,
       autoRotate: _autoRotateEffective,
       autoRotateDelay: 0,
       rotationPerSecond: '14deg',
