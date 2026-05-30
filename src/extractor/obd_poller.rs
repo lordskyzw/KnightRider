@@ -71,6 +71,7 @@ pub const DEFAULT_PIDS: &[ObdPid] = &[
     ObdPid::ShortTermFuelTrimBank1,
     ObdPid::LongTermFuelTrimBank1,
     ObdPid::O2SensorBank1Sensor2,
+    ObdPid::O2S1WrLambda, // upstream wide-range O2 (P0420 catalyst story)
     ObdPid::RunTimeSinceStart,
     ObdPid::FuelTankLevel,
     ObdPid::BatteryVoltage,
@@ -439,6 +440,7 @@ pub fn signal_name(pid: ObdPid) -> &'static str {
         ObdPid::FuelSystemStatus => "obd.fuel_system_status",
         ObdPid::O2SensorsPresent => "obd.o2_sensors_present",
         ObdPid::O2SensorBank1Sensor2 => "obd.o2_b1s2_v",
+        ObdPid::O2S1WrLambda => "obd.o2s1_eq_ratio",
         ObdPid::RunTimeSinceStart => "obd.run_time_s",
         ObdPid::FuelTankLevel => "obd.fuel_level",
         ObdPid::BarometricPressure => "obd.baro_pressure",

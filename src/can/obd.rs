@@ -66,6 +66,12 @@ pub enum ObdPid {
     ThrottlePosition = 0x11,
     O2SensorsPresent = 0x13,
     O2SensorBank1Sensor2 = 0x15,
+    /// Mode 01 PID 0x24 — O2 Sensor 1 wide-range/AFR (upstream, pre-cat).
+    /// Returns equivalence ratio (λ) in A,B + voltage in C,D. The Axio uses a
+    /// wide-band upstream sensor (supports 0x24, not narrowband 0x14); the
+    /// catalyst-efficiency (P0420) story needs this paired with the downstream
+    /// narrowband 0x15. We emit the equivalence ratio.
+    O2S1WrLambda = 0x24,
     RunTimeSinceStart = 0x1F,
     SupportedPids21To40 = 0x20,
     FuelTankLevel = 0x2F,
@@ -96,6 +102,7 @@ impl ObdPid {
             | ObdPid::CommandedEquivalenceRatio
             | ObdPid::EngineFuelRate => 2,
             ObdPid::O2SensorBank1Sensor2 => 2,    // voltage A, STFT B
+            ObdPid::O2S1WrLambda => 4,            // λ in A,B; voltage in C,D
             _ => 1,
         }
     }
@@ -117,6 +124,7 @@ impl ObdPid {
             ObdPid::ThrottlePosition => "Throttle Position",
             ObdPid::O2SensorsPresent => "O2 Sensors Present",
             ObdPid::O2SensorBank1Sensor2 => "O2 Sensor B1S2 Voltage",
+            ObdPid::O2S1WrLambda => "O2 Sensor 1 Equivalence Ratio (wide-range)",
             ObdPid::RunTimeSinceStart => "Run Time Since Start",
             ObdPid::SupportedPids21To40 => "Supported PIDs [21-40]",
             ObdPid::FuelTankLevel => "Fuel Tank Level",
@@ -138,7 +146,8 @@ impl ObdPid {
             | ObdPid::SupportedPids21To40
             | ObdPid::FuelSystemStatus
             | ObdPid::O2SensorsPresent
-            | ObdPid::CommandedEquivalenceRatio => "",
+            | ObdPid::CommandedEquivalenceRatio
+            | ObdPid::O2S1WrLambda => "",
             ObdPid::CoolantTemperature
             | ObdPid::IntakeAirTemperature
             | ObdPid::AmbientAirTemperature
@@ -341,6 +350,7 @@ impl ObdResponse {
             ObdPid::RunTimeSinceStart => a * 256.0 + b,
             ObdPid::BatteryVoltage => (a * 256.0 + b) / 1000.0,  // mV → V
             ObdPid::CommandedEquivalenceRatio => (a * 256.0 + b) / 32768.0, // lambda
+            ObdPid::O2S1WrLambda => (a * 256.0 + b) / 32768.0,             // equivalence ratio λ
             ObdPid::EngineFuelRate => (a * 256.0 + b) / 20.0,
         };
 
@@ -423,6 +433,16 @@ mod tests {
             ecu_id: 0x7E8, service: 0x01, pid: 0x44, data: vec![0x80, 0x00],
         };
         let decoded = response.decode(ObdPid::CommandedEquivalenceRatio).unwrap();
+        assert!((decoded.value - 1.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_decode_o2s1_wr_lambda() {
+        // 0x80 0x00 .. = 32768 / 32768 = 1.0 λ (stoichiometric); C,D ignored.
+        let response = ObdResponse {
+            ecu_id: 0x7E8, service: 0x01, pid: 0x24, data: vec![0x80, 0x00, 0x7A, 0x10],
+        };
+        let decoded = response.decode(ObdPid::O2S1WrLambda).unwrap();
         assert!((decoded.value - 1.0).abs() < 0.0001);
     }
 

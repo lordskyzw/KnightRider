@@ -28,7 +28,8 @@ KR_SIGNAL_TO_OBD = {
     'obd.throttle':        'throttle',
     'obd.stft_b1':         'stft',
     'obd.ltft_b1':         'ltft',
-    'obd.o2_b1s1_v':       'o2_up',    # not captured yet (add PID 0x14)
+    'obd.o2_b1s1_v':       'o2_up',    # narrowband upstream (cars that support 0x14)
+    'obd.o2s1_eq_ratio':   'o2_up',    # wide-range upstream λ (Axio PID 0x24)
     'obd.o2_b1s2_v':       'o2_down',
 }
 
