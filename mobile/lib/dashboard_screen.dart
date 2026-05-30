@@ -607,6 +607,7 @@ class _CarVisualizer extends StatelessWidget {
                 alt: '${vehicle.name} 3D model',
                 credit: vehicle.credit ?? '',
                 materials: vehicle.materials,
+                frontZ: vehicle.frontZ,
                 autoRotate: autoRotate,
                 inDepth: inDepth,
                 sensorStatus: sensorStatus,

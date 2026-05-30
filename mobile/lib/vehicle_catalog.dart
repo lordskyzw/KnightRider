@@ -43,6 +43,10 @@ class VehicleModel {
   final String? credit;
   /// Material-name map for recolour/lamps in this specific GLB.
   final MaterialMap materials;
+  /// Sign of the model's "front" along Z (+1 or −1). GLBs face different ways;
+  /// this orients the anatomical hotspots (engine front, fuel rear). The Vitz/
+  /// Axio are +1 (field-verified: engine node lands at the front). Tune per car.
+  final double frontZ;
 
   const VehicleModel({
     required this.id,
@@ -51,6 +55,7 @@ class VehicleModel {
     required this.silhouetteAsset,
     required this.credit,
     this.materials = const MaterialMap(),
+    this.frontZ = 1.0,
   });
 
   bool get has3d => glbAsset != null;
@@ -94,6 +99,43 @@ const List<VehicleModel> kVehicles = [
       body: ['main_paint'],
       wheel: ['tyre_side'],
       head: ['klosz'],
+    ),
+  ),
+  VehicleModel(
+    id: 'gle',
+    name: 'Mercedes-Benz GLE63 AMG Coupé',
+    glbAsset: 'assets/cars/gle.glb',
+    silhouetteAsset: _kGenericSilhouette,
+    credit: 'GLE63 AMG Coupé by Ddiaz Design · CC BY-NC-SA 4.0',
+    // Cleanly named materials: paint, tyre/rim, lamp lenses split head vs tail.
+    materials: MaterialMap(
+      body: ['carpaint'],
+      wheel: ['rim', 'disk'],
+      head: ['light'], // glass_light / light_ref / light_map
+      tail: ['red_glass'],
+    ),
+  ),
+  VehicleModel(
+    id: 'gwagon',
+    name: 'Mercedes-Benz G-Class (W463)',
+    glbAsset: 'assets/cars/gwagon.glb',
+    silhouetteAsset: _kGenericSilhouette,
+    credit: 'G-Class by Lexyc16 · CC BY 4.0',
+    // GLB uses generic Material.00x names — not separable, so no recolour/lamps.
+    // Renders in its factory black, which looks right as-is.
+    materials: MaterialMap(),
+  ),
+  VehicleModel(
+    id: 'eclass',
+    name: 'Mercedes-Benz E-Class (W212)',
+    glbAsset: 'assets/cars/eclass.glb',
+    silhouetteAsset: _kGenericSilhouette,
+    credit: 'E-Class W212 by Black Snow · CC BY 4.0',
+    materials: MaterialMap(
+      body: ['body_color'],
+      wheel: ['wheel'],
+      head: ['projector_light'],
+      tail: ['taillight'],
     ),
   ),
 ];
