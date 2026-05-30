@@ -241,7 +241,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _openDtc() {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => DtcScreen(latest: Map.of(_latest)),
+      builder: (_) => DtcScreen(latest: Map.of(_latest), host: _host),
     ));
   }
 

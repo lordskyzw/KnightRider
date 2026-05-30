@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'dtc_codes.dart';
+import 'pi_client.dart';
 import 'sample.dart';
 
 /// Detail screen for the dashboard's DTC counter. Lists every currently-
@@ -9,7 +10,9 @@ import 'sample.dart';
 /// cleared codes (signal `dtc.cleared.*`) from the live sample feed.
 class DtcScreen extends StatelessWidget {
   final Map<String, Sample> latest;
-  const DtcScreen({super.key, required this.latest});
+  /// Pi host:port — used to POST the Mode 0x04 clear request.
+  final String host;
+  const DtcScreen({super.key, required this.latest, required this.host});
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +62,116 @@ class DtcScreen extends StatelessWidget {
             ...cleared.take(10).map((s) =>
                 _DtcRow(sample: s, isStored: false)),
           ],
+          const SizedBox(height: 20),
+          _ClearCodesButton(host: host),
+          const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+}
+
+/// Triggers OBD-II Mode 0x04 on the Pi. Confirms first (with the honest caveat
+/// that the light returns if the fault is still present), shows progress, then
+/// reports the ECU's answer. The Pi enforces the engine-off safety gate.
+class _ClearCodesButton extends StatefulWidget {
+  final String host;
+  const _ClearCodesButton({required this.host});
+  @override
+  State<_ClearCodesButton> createState() => _ClearCodesButtonState();
+}
+
+class _ClearCodesButtonState extends State<_ClearCodesButton> {
+  bool _busy = false;
+
+  Future<void> _confirmAndClear() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF16171A),
+        title: const Text('Clear codes & reset light?',
+            style: TextStyle(color: Color(0xFFF0F0F2), fontSize: 17)),
+        content: const Text(
+          'Sends OBD-II Mode 04 to the ECU: clears stored codes and turns off '
+          'the check-engine light.\n\n'
+          '• If the fault is still present, the light comes back after a drive cycle.\n'
+          '• Emissions readiness monitors reset and stay "not ready" until you drive.\n'
+          '• The engine must be off (key on) — the Pi will refuse otherwise.',
+          style: TextStyle(color: Color(0xFF8E8E92), fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel',
+                style: TextStyle(color: Color(0xFF8E8E92))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear codes',
+                style: TextStyle(
+                    color: Color(0xFFFF9F0A), fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _busy = true);
+    final client = PiClient(widget.host);
+    ClearDtcResult res;
+    try {
+      res = await client.clearDtcs();
+    } catch (e) {
+      res = ClearDtcResult(ok: false, message: 'Could not reach the Pi ($e).');
+    } finally {
+      client.close();
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor:
+          res.ok ? const Color(0xFF1B3A24) : const Color(0xFF3A2A16),
+      duration: const Duration(seconds: 6),
+      content: Row(
+        children: [
+          Icon(res.ok ? Icons.check_circle_outline : Icons.error_outline,
+              color: res.ok ? const Color(0xFF34C759) : const Color(0xFFFF9F0A),
+              size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(res.message,
+                style: const TextStyle(color: Color(0xFFF0F0F2), fontSize: 12.5)),
+          ),
+        ],
+      ),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: _busy ? null : _confirmAndClear,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFFFF9F0A),
+            side: const BorderSide(color: Color(0xFF3A2A16)),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+          ),
+          icon: _busy
+              ? const SizedBox(
+                  width: 16, height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Color(0xFFFF9F0A)))
+              : const Icon(Icons.cleaning_services_outlined, size: 18),
+          label: Text(_busy ? 'Clearing…' : 'Clear codes & reset light',
+              style: const TextStyle(
+                  fontSize: 13.5, fontWeight: FontWeight.w600)),
+        ),
       ),
     );
   }

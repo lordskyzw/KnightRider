@@ -29,10 +29,27 @@ use std::time::{Duration, Instant};
 
 use crate::can::dtc::DtcCode;
 use crate::can::interface::CanError;
-use crate::can::obd::{addressing, build_stored_dtc_request, build_vehicle_info_request, ObdService};
+use crate::can::obd::{
+    addressing, build_clear_dtc_request, build_stored_dtc_request, build_vehicle_info_request,
+    ObdService,
+};
 use crate::can::{CanFrame, CanInterface, IsoTpSession, ObdPid, ObdRequest, ObdResponse};
 use crate::extractor::sample::{Sample, SampleSource};
 use crate::extractor::SampleSender;
+
+/// A command sent to the running poller from elsewhere (the HTTP server). The
+/// poller owns the CAN socket on its own thread, so all writes funnel through
+/// here and run between polls — never concurrently with another transaction.
+pub enum PollerCommand {
+    /// OBD-II Mode 0x04 — clear DTCs + reset the MIL. Replies Ok(msg) on a
+    /// confirmed clear, or Err(msg) if gated/refused/timed out.
+    ClearDtcs {
+        reply: tokio::sync::oneshot::Sender<Result<String, String>>,
+    },
+}
+
+/// Receiver end held by the poller thread.
+pub type CommandRx = tokio::sync::mpsc::Receiver<PollerCommand>;
 
 /// PID set polled by default if the caller does not override.
 ///
@@ -89,14 +106,21 @@ impl Default for ObdPollerConfig {
 /// Spawns the OBD poller on a dedicated thread.
 ///
 /// `can` is moved into the thread. The thread runs until the process exits.
-pub fn spawn(can: CanInterface, tx: SampleSender, config: ObdPollerConfig) -> JoinHandle<()> {
+/// `cmd_rx`, if given, lets the server inject write commands (clear DTCs) that
+/// the loop executes between polls.
+pub fn spawn(
+    can: CanInterface,
+    tx: SampleSender,
+    config: ObdPollerConfig,
+    cmd_rx: Option<CommandRx>,
+) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("obd-poller".into())
-        .spawn(move || run(can, tx, config))
+        .spawn(move || run(can, tx, config, cmd_rx))
         .expect("spawn obd-poller thread")
 }
 
-fn run(can: CanInterface, tx: SampleSender, config: ObdPollerConfig) {
+fn run(can: CanInterface, tx: SampleSender, config: ObdPollerConfig, mut cmd_rx: Option<CommandRx>) {
     if config.pids.is_empty() {
         log::warn!("obd-poller: no PIDs configured, exiting");
         return;
@@ -144,6 +168,25 @@ fn run(can: CanInterface, tx: SampleSender, config: ObdPollerConfig) {
     let mut known_stored: HashSet<DtcCode> = HashSet::new();
 
     loop {
+        // Inbound write commands (clear DTCs), executed between polls so they
+        // never overlap another transaction on the shared socket.
+        if let Some(rx) = cmd_rx.as_mut() {
+            while let Ok(cmd) = rx.try_recv() {
+                match cmd {
+                    PollerCommand::ClearDtcs { reply } => {
+                        let res = clear_dtcs(&can, &mut isotp, config.response_timeout);
+                        match &res {
+                            Ok(m) => log::info!("obd-poller: clear DTCs OK — {}", m),
+                            Err(m) => log::warn!("obd-poller: clear DTCs refused — {}", m),
+                        }
+                        let _ = reply.send(res);
+                        // Force a fresh DTC sweep so the app sees the new count.
+                        last_dtc = Instant::now() - config.dtc_interval;
+                    }
+                }
+            }
+        }
+
         // Slow DTC sweep, opportunistic.
         if last_dtc.elapsed() >= config.dtc_interval {
             isotp.reset();
@@ -284,6 +327,65 @@ fn read_stored_dtcs(
         return Err("unexpected mode in response");
     }
     Ok(crate::can::dtc::parse_dtc_list(&payload[1..]))
+}
+
+/// Read engine RPM once (Mode 01 PID 0C). Used as the clear-DTC safety gate.
+/// Returns `None` if the ECU doesn't answer (engine likely off / KOEO).
+fn read_rpm(can: &CanInterface, isotp: &mut IsoTpSession, timeout: Duration) -> Option<f64> {
+    isotp.reset();
+    send_request(can, ObdPid::EngineRpm).ok()?;
+    isotp.reset();
+    let (ecu, payload) = await_response(can, isotp, timeout)?;
+    ObdResponse::parse(ecu, &payload)
+        .and_then(|r| r.decode(ObdPid::EngineRpm))
+        .ok()
+        .map(|d| d.value)
+}
+
+/// Send Mode 0x04 (clear DTCs + reset MIL). The ONE write we perform.
+///
+/// Safety gate: refuse if the engine is positively running (RPM > 50) — never
+/// clear codes on a moving/running vehicle. If RPM can't be read (engine off at
+/// key-on, which is exactly when you'd clear), we proceed. A confirmed clear is
+/// the positive-response mode 0x44; a `7F 04 NRC` is the ECU/gateway refusing.
+fn clear_dtcs(
+    can: &CanInterface,
+    isotp: &mut IsoTpSession,
+    timeout: Duration,
+) -> Result<String, String> {
+    if let Some(rpm) = read_rpm(can, isotp, timeout) {
+        if rpm > 50.0 {
+            return Err(format!(
+                "Engine is running ({:.0} rpm). Switch the engine off (key on) before clearing codes.",
+                rpm
+            ));
+        }
+    }
+
+    let (data, id) = build_clear_dtc_request();
+    isotp.reset();
+    can.send(&CanFrame::new(id, &data))
+        .map_err(|e| format!("CAN send failed: {}", e))?;
+
+    match await_response(can, isotp, timeout) {
+        Some((_ecu, payload)) => match payload.first().copied() {
+            Some(mode) if mode == ObdService::ClearDtcs.response_mode() => Ok(
+                "Codes cleared and the check-engine light reset. It will return if the fault \
+                 is still present; emissions readiness monitors are reset until you drive."
+                    .to_string(),
+            ),
+            Some(0x7F) => {
+                let nrc = payload.get(2).copied().unwrap_or(0);
+                Err(format!(
+                    "ECU refused the clear (NRC 0x{:02X}). Some ECUs require the engine off, \
+                     or a security gateway is blocking the write.",
+                    nrc
+                ))
+            }
+            _ => Err("Unexpected response from the ECU; clear not confirmed.".to_string()),
+        },
+        None => Err("No response from the ECU — clear not confirmed.".to_string()),
+    }
 }
 
 /// Send Mode 0x09 with the given info-PID and return the decoded ASCII string.

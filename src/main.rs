@@ -117,7 +117,10 @@ async fn main() {
     let writer_rx = tx.subscribe();
 
     // ── Extractors ────────────────────────────────────────────────────────
-    let _poller = obd_poller::spawn(can_obd, tx.clone(), Default::default());
+    // Command channel into the poller for write ops (clear DTCs). Bounded — at
+    // most a couple of clears in flight; the poller drains it between polls.
+    let (clear_tx, clear_rx) = tokio::sync::mpsc::channel(4);
+    let _poller = obd_poller::spawn(can_obd, tx.clone(), Default::default(), Some(clear_rx));
     log::info!("obd-poller spawned");
 
     if let Some(c) = can_sniff {
@@ -135,7 +138,11 @@ async fn main() {
 
     // ── HTTP + WS server ──────────────────────────────────────────────────
     let serve_handle = tokio::spawn({
-        let state = AppState { samples_tx: tx.clone(), store: store.clone() };
+        let state = AppState {
+            samples_tx: tx.clone(),
+            store: store.clone(),
+            clear_tx: Some(clear_tx),
+        };
         let addr = args.bind_addr;
         async move {
             if let Err(e) = server::serve(state, addr).await {

@@ -25,6 +25,10 @@ pub enum ObdService {
     CurrentData = 0x01,
     /// Mode 0x03 — show stored DTCs (read-only; reply parsed by `dtc.rs`).
     StoredDtcs = 0x03,
+    /// Mode 0x04 — clear DTCs + freeze frame + reset the MIL. The one WRITE
+    /// service we implement. Gated behind an engine-off safety check and an
+    /// explicit user action; the positive response is mode 0x44 (no data).
+    ClearDtcs = 0x04,
     /// Mode 0x09 — request vehicle information (VIN, calibration ID, ECU name).
     VehicleInfo = 0x09,
 }
@@ -241,6 +245,13 @@ impl ObdRequest {
 /// Helper to build a Mode 0x03 (read stored DTCs) request frame.
 pub fn build_stored_dtc_request() -> ([u8; 8], u32) {
     let frame = IsoTpSession::build_single_frame(&[ObdService::StoredDtcs as u8]);
+    (frame, addressing::OBD_REQUEST_ID)
+}
+
+/// Helper to build a Mode 0x04 (clear DTCs + reset MIL) request frame. This is
+/// a WRITE to the ECU — see the engine-off gate in the poller before sending.
+pub fn build_clear_dtc_request() -> ([u8; 8], u32) {
+    let frame = IsoTpSession::build_single_frame(&[ObdService::ClearDtcs as u8]);
     (frame, addressing::OBD_REQUEST_ID)
 }
 

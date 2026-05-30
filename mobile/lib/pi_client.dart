@@ -108,7 +108,33 @@ class PiClient {
     return out;
   }
 
+  /// `POST /clear-dtc` — asks the Pi to run OBD-II Mode 0x04 (clear codes +
+  /// reset the check-engine light). The Pi gates this on the engine being off
+  /// and only confirms once the ECU acknowledges. Returns the outcome; never
+  /// throws on a clean refusal (engine running / ECU declined) — that comes
+  /// back as `ClearDtcResult(ok: false, ...)`.
+  Future<ClearDtcResult> clearDtcs() async {
+    final r = await _http
+        .post(_u('/clear-dtc'))
+        .timeout(const Duration(seconds: 8));
+    String message = '';
+    try {
+      final j = jsonDecode(r.body) as Map<String, dynamic>;
+      message = (j['message'] as String?) ?? '';
+    } catch (_) {
+      message = 'Unexpected response (${r.statusCode}).';
+    }
+    return ClearDtcResult(ok: r.statusCode == 200, message: message);
+  }
+
   void close() => _http.close();
+}
+
+/// Outcome of a clear-DTC request.
+class ClearDtcResult {
+  final bool ok;
+  final String message;
+  ClearDtcResult({required this.ok, required this.message});
 }
 
 class HttpException implements Exception {
