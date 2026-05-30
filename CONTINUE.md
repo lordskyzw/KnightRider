@@ -90,6 +90,18 @@ When you finish a chunk of work, before stopping:
 | `13b9b93`| **Mobile: honest 3-state connection status.** OFFLINE / LINKED (socket open, no fresh sample in 3 s) / LIVE (telemetry within 3 s). `ws_client` CONNECTED now fires on `WebSocketChannel.ready`; dashboard tracks `_lastSampleAt`. Fixes the ambiguous "LIVE". |
 | `b2abbb7`| **Mobile: per-vehicle 3D model + Settings car picker** (v0.9.0+12). `vehicle_catalog.dart` (Vitz w/ GLB, Axio E160 w/o GLB yet); user picks the car since VIN isn't OBD-readable. APK built: `mobile/build/app/outputs/flutter-apk/knight-rider-v0.9.0+12.apk` (shared with team). |
 
+#### Camera UX, fleet expansion + first WRITE op (2026-05-30) — v0.12.1+20 → 0.14.0+25
+
+iPhone testing via Codemagic (`codemagic.yaml`, workflow `ios-unsigned-dev`) →
+unsigned IPA → Sideloadly. All on-device verified.
+
+| Commit   | What                                                        |
+|----------|-------------------------------------------------------------|
+| `61517ee`,`60e97fe`| **Holistic camera-continuity rewrite.** Root cause: `model_viewer_plus` loads the WebView ONCE (no `didUpdateWidget`) and the iOS WKWebView silently reloads itself (jettison / modal cover), resetting the camera. Fix: track the live orbit in Dart (`KRCam`, user-interaction events only), restore it verbatim on every reload (`krRestore`+`jumpCameraToGoal`); X-ray toggle re-pins the orbit so flipping auto-rotate can't snap the camera. Auto-rotate now fully off in X-ray + applies immediately from Settings. See [[model-viewer-camera-architecture]] memory. |
+| `a1bde6f`| Tray closes by drag only (`isDismissible:false`); `disableTap` so plain taps never move the camera; app name → **"Knight Rider"**; new **blueprint M4 app icon** (white car lines on brand near-black); car backdrops + 2 blueprint grids. |
+| `c82413b`| **3 Mercedes bundled** (v0.13.0+24): GLE63 AMG (white, CC BY-NC-SA), G-Class W463 (black, CC-BY), E-Class W212 (white, CC-BY). NC allowed for the academic demo. Optimised prune/weld/resize/webp, no Draco. `VehicleModel.frontZ` threaded through (engine-front verified +1). |
+| `5c24fcb`| **First WRITE op: clear DTCs / reset MIL (OBD-II Mode 0x04)** (v0.14.0+25). Poller gains a command channel; `POST /clear-dtc` → engine-off gate (refuse if RPM>50) → Mode 0x04 → confirm 0x44 / surface 7F-NRC. App DTC screen "Clear codes & reset light" button w/ confirm dialog + honest caveats. **Deployed to the Pi 2026-05-30** (running `5c24fcb`, systemd restarted, `/health` green). Everything else stays read-only. |
+
 ### Sibling repo `../knight-rider-cloud`
 
 | Commit   | What                                                        |
@@ -188,7 +200,36 @@ tests, all passing.
 
 ## Up next (priority order)
 
-### 0. 3D car live-state + renderer (current focus, 2026-05-29)
+### ★ CURRENT FOCUS (2026-05-30): GP / discovery track — start the research path
+The app + Pi data pipeline are field-proven (live dashboard, courier loop, 5-car
+picker, X-ray, and now the clear-DTC write op). The publication target is the
+**RA-Typed GP for unsupervised fault detection** (see `user-publication-interest`
+memory; already validated on 9 experiments in `discovery_track/` +
+`../ra-typed-gp-showcase`). Pull this forward now:
+- **Discovery worker skeleton (cloud-side)** — item 4 below. Consume accumulated
+  Railway batches → decode → run the GP discovery pass offline → emit candidate
+  fault signatures. This is where the real data (Axio P0420 + idle/drive logs)
+  meets the model.
+- **Known-track inference on the Pi** — item 5. The instant-alert side of the
+  loop; promoted from discovery via signed bundles to `/inbox`.
+- Decide the **data substrate**: we have N batches in Railway Postgres
+  (`device 65897622…`) + local capture sqlites under `captures/`. First job is a
+  clean decode→feature-frame export the GP can train on.
+- Open question to settle with the user: target signal(s) for the first GP pass
+  (catalyst-temp / fuel-trim drift around P0420 is the obvious candidate given
+  the Axio data), and online (Pi) vs batch (cloud) framing.
+
+### 0. (SHIPPED / parked) 3D car live-state + renderer
+Mobile 3D arc is feature-complete and on-device verified (camera UX, fleet of 5,
+X-ray, blueprint icon, "Knight Rider" name). Remaining nice-to-haves, not blocking:
+- **Live brake/door lamps:** dashboard can consume `dbc.toyota.BRAKE.pressed` /
+  `.DOORS.driver` → drive `CarModel3D` via `runJavaScript` (not key-reload).
+- **Cloud-deliver the GLBs** so the app stops bundling all 5 (~20 MB IPA). The
+  download-on-demand plan in `docs/SCALING.md`.
+- **Renderer:** native Filament (`thermion`) vs `model_viewer_plus` — only if the
+  WebView ever feels limiting (no bloom, can't transform nodes for animated doors).
+
+### 0z. 3D car live-state notes (historical, 2026-05-29)
 - **Pi side DONE (pending deploy):** sniffer now has bit-level (`Field::Bit`)
   support + a field-verified Toyota Axio profile (brake `0x224.0` bit5, stop-lamp
   `0x3B4.4` bit0, driver door `0x620.5` bit5). **Key field finding:** exterior
@@ -413,16 +454,36 @@ curl https://knight-rider-cloud-production.up.railway.app/health
 # {"status":"ok","version":"0.1.0"}
 ```
 
+### Pi deploy flow (CANONICAL — it's a systemd service now, NOT nohup)
+
+The Pi runs `knight-rider.service` (+ `can0-up.service` brings up can0 @ 500 kbps).
+Earlier nohup snippets in this doc are historical. To ship a new binary:
+
+```bash
+# From Windows (same LAN/hotspot as the Pi; mDNS resolves kitt.local via the
+# Windows resolver — use PowerShell ssh, git-bash ssh can't do .local).
+ssh kitt@kitt.local "cd ~/KnightRider \
+  && git checkout -- target/.rustc_info.json 2>/dev/null; git pull --ff-only origin main \
+  && ~/.cargo/bin/cargo build --release \
+  && sudo systemctl restart knight-rider \
+  && systemctl is-active knight-rider"
+# Buffer is preserved across restarts (same --buffer path baked into the unit).
+curl -s http://kitt.local:8080/health   # confirm new binary serving
+journalctl -u knight-rider -f           # tail logs (replaces /tmp/kr.log)
+```
+
+### HTTP/WS endpoints (server/mod.rs)
+`GET /health` · `GET /ws/live` · `GET /backlog?since=N` · `GET /known-track/alerts`
+· `POST /inbox` · **`POST /clear-dtc`** — the only WRITE. Mode 0x04 clear DTCs +
+reset MIL; poller-gated on engine-off (RPM>50 → refuse). Returns 200 confirmed /
+409 refused (engine running or ECU/gateway NRC) / 503 no-CAN / 504 ECU timeout.
+App calls it from the DTC screen ("Clear codes & reset light", with confirm
+dialog). Field-test at the Axio **key-on/engine-off**; watch for a 7F-04 NRC
+(some ECUs need specific conditions / a security gateway blocks it).
+
 ### End-to-end smoke (Pi → phone → cloud)
 
 ```bash
-# On Pi (assumes binary already built and can0 oscillator value correct)
-sudo ip link set can0 down
-sudo ip link set can0 up type can bitrate 500000 restart-ms 100
-sudo nohup /home/kitt/KnightRider/target/release/knight-rider \
-    --interface can0 --buffer /var/lib/knight-rider/buffer.sqlite \
-    > /tmp/kr.log 2>&1 &
-
 # In Flutter:
 #   Settings → Pi host:port    = <pi-ip>:8080   (e.g. 172.20.10.x on iPhone hotspot)
 #   Settings → Cloud base URL  = https://knight-rider-cloud-production.up.railway.app
