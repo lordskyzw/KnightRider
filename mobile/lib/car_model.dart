@@ -83,8 +83,6 @@ class CarModel3D extends StatefulWidget {
   final double frontZ;
   /// Tapped a sensor hotspot (passes the node id).
   final void Function(String id)? onHotspotTap;
-  /// Plain tap on the car (not a hotspot) — used to toggle the dashboard chrome.
-  final VoidCallback? onTap;
   final Color? bodyColor;
   final Color wheelColor;
   final LampState lamps;
@@ -101,7 +99,6 @@ class CarModel3D extends StatefulWidget {
     this.sensorStatus = const {},
     this.frontZ = 1.0,
     this.onHotspotTap,
-    this.onTap,
     this.bodyColor,
     this.wheelColor = const Color(0xFF000000),
     this.lamps = const LampState(),
@@ -116,16 +113,17 @@ class _CarModel3DState extends State<CarModel3D> {
   bool _ready = false;
   int _zoom = 1; // preset zoom level: 1x / 2x / 3x
 
-  // Radius % per zoom level. Auto-rotate is only allowed at 1x.
+  // Radius % per zoom level. Auto-rotate is only allowed at 1x, and never in
+  // X-ray mode (a turning ghost is disorienting when reading sensor nodes).
   static const Map<int, double> _zoomRadius = {1: 130, 2: 90, 3: 62};
-  bool get _autoRotateEffective => widget.autoRotate && _zoom == 1;
+  bool get _autoRotateEffective =>
+      widget.autoRotate && _zoom == 1 && !widget.inDepth;
 
   void _setZoom(int z) {
     if (z == _zoom) return;
     setState(() => _zoom = z);
-    final rotate = widget.autoRotate && z == 1;
     _controller?.runJavaScript(
-        'window.krZoom&&window.krZoom(${_zoomRadius[z]}, $rotate);');
+        'window.krZoom&&window.krZoom(${_zoomRadius[z]}, $_autoRotateEffective);');
   }
 
   static double _lin(double s) =>
@@ -285,28 +283,24 @@ document.querySelectorAll('.kr-hot').forEach(function(el){
     try { KRHotspot.postMessage(el.dataset.id); } catch (e) {}
   });
 });
-// A plain tap on the car (not a hotspot, not a drag) toggles the chrome.
-mv.addEventListener('click', function(e){
-  try {
-    if (e.target && e.target.closest && e.target.closest('.kr-hot')) return;
-    KRTap.postMessage('1');
-  } catch (e2) {}
-});
 window.krApply();
 ''';
   }
 
   /// Push the current widget state into the already-loaded viewer (no reload).
+  /// Also asserts auto-rotate (off in X-ray / above 1x) WITHOUT moving the
+  /// camera, so toggling X-ray feels like a continuation of the current view.
   void _push() {
     final c = _controller;
     if (c == null || !_ready) return;
-    c.runJavaScript('${_stateJs()}window.krApply&&window.krApply();');
+    c.runJavaScript('${_stateJs()}window.krApply&&window.krApply();'
+        'try{document.querySelector("model-viewer").autoRotate=$_autoRotateEffective;}catch(e){}');
   }
 
   void _recenter() {
     setState(() => _zoom = 1);
     _controller?.runJavaScript(
-        'window.krRecenter&&window.krRecenter(${widget.autoRotate});');
+        'window.krRecenter&&window.krRecenter($_autoRotateEffective);');
   }
 
   @override
@@ -384,15 +378,17 @@ window.krApply();
       relatedCss: _relatedCss,
       innerModelViewerHtml: _hotspotHtml(),
       javascriptChannels: {
+        // Fires on every (re)load — incl. the platform-view reload a bottom
+        // sheet can trigger. We re-assert state + framing so opening a sensor
+        // never drops X-ray or snaps the zoom back to 1x.
         JavascriptChannel('KRReady', onMessageReceived: (_) {
           _ready = true;
           _push();
+          _controller?.runJavaScript(
+              'window.krZoom&&window.krZoom(${_zoomRadius[_zoom]}, $_autoRotateEffective);');
         }),
         JavascriptChannel('KRHotspot', onMessageReceived: (msg) {
           widget.onHotspotTap?.call(msg.message);
-        }),
-        JavascriptChannel('KRTap', onMessageReceived: (_) {
-          widget.onTap?.call();
         }),
       },
       onWebViewCreated: (c) => _controller = c,

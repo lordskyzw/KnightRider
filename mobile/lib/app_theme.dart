@@ -71,6 +71,40 @@ const List<CarColorOption> kWheelColorOptions = [
   CarColorOption('Gold', Color(0xFFCBA135)),
 ];
 
+/// A backdrop behind the 3D car. Kept deliberately dark and low-contrast so the
+/// car (and its glow) stays the hero — these "blend in" rather than decorate.
+/// Rendered as a soft radial gradient (centre → edge) behind the dashboard.
+class CarBackground {
+  final String id;
+  final String name;
+  final Color centre;
+  final Color edge;
+  const CarBackground(this.id, this.name, this.centre, this.edge);
+
+  RadialGradient get gradient => RadialGradient(
+        center: const Alignment(0, -0.15),
+        radius: 1.1,
+        colors: [centre, edge],
+      );
+}
+
+/// Backdrop presets offered in Settings. First (carbon) is the original flat
+/// near-black and stays the default.
+const List<CarBackground> kCarBackgrounds = [
+  CarBackground('carbon', 'Carbon', Color(0xFF0A0A0B), Color(0xFF0A0A0B)),
+  CarBackground('graphite', 'Graphite', Color(0xFF1C1F25), Color(0xFF09090B)),
+  CarBackground('midnight', 'Midnight', Color(0xFF0F1626), Color(0xFF06070C)),
+  CarBackground('slate', 'Slate', Color(0xFF23262D), Color(0xFF0B0C0F)),
+  CarBackground('obsidian', 'Obsidian', Color(0xFF151517), Color(0xFF000000)),
+];
+
+CarBackground carBackgroundById(String? id) {
+  for (final b in kCarBackgrounds) {
+    if (b.id == id) return b;
+  }
+  return kCarBackgrounds.first;
+}
+
 /// Builds the global dark theme from the current [AppPalette.accent].
 ThemeData buildAppTheme() {
   final scheme = ColorScheme.fromSeed(

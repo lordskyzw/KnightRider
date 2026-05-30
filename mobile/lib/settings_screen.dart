@@ -17,6 +17,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loaded = false;
   bool _car3d = true;
   bool _autoRotate = true;
+  String _bgId = 'carbon';
   String _vehicleId = kDefaultVehicleId;
   Color _accent = AppPalette.accent;
   Color? _carColor; // null = factory paint
@@ -34,6 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final cloud = await PiConfig.cloudUrl();
     final car3d = await PiConfig.car3dEnabled();
     final autoRotate = await PiConfig.carAutoRotate();
+    final bgId = await PiConfig.carBackground();
     final vehicleId = await PiConfig.vehicleId();
     final carColorArgb = await PiConfig.carColor();
     final wheelArgb = await PiConfig.wheelColor();
@@ -43,6 +45,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _cloudCtrl.text = cloud;
       _car3d = car3d;
       _autoRotate = autoRotate;
+      _bgId = bgId;
       _vehicleId = vehicleId;
       _carColor = carColorArgb == null ? null : Color(carColorArgb);
       _wheelColor = Color(wheelArgb);
@@ -74,6 +77,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await PiConfig.setCloudUrl(cloud);
     await PiConfig.setCar3dEnabled(_car3d);
     await PiConfig.setCarAutoRotate(_autoRotate);
+    await PiConfig.setCarBackground(_bgId);
     await PiConfig.setVehicleId(_vehicleId);
     await PiConfig.setAccentColor(_accent.toARGB32());
     await PiConfig.setCarColor(_carColor?.toARGB32());
@@ -102,6 +106,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               children: [
+                // ── Connection ──────────────────────────────────────────────
+                const _SectionHeader('Connection', first: true),
                 const _Label('PI HOST:PORT'),
                 const SizedBox(height: 8),
                 TextField(
@@ -126,11 +132,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         'https://knight-rider-cloud-production.up.railway.app',
                   ),
                 ),
-                const SizedBox(height: 24),
-                const Divider(color: AppPalette.divider),
-                const SizedBox(height: 12),
-                const _Label('VEHICLE'),
-                const SizedBox(height: 4),
+
+                // ── Vehicle ─────────────────────────────────────────────────
+                const _SectionHeader('Vehicle'),
                 const Text(
                   "Which car to render. VIN can't be read over OBD reliably, "
                   'so choose it here.',
@@ -143,8 +147,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     selected: v.id == _vehicleId,
                     onTap: () => setState(() => _vehicleId = v.id),
                   ),
-                const SizedBox(height: 16),
-                const Divider(color: AppPalette.divider),
+
+                // ── Appearance ──────────────────────────────────────────────
+                const _SectionHeader('Appearance'),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('3D car model',
@@ -174,8 +179,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: _car3d ? (v) => setState(() => _autoRotate = v) : null,
                 ),
                 const SizedBox(height: 16),
-                const Divider(color: AppPalette.divider),
-                const SizedBox(height: 12),
+                const _Label('BACKGROUND'),
+                const SizedBox(height: 4),
+                const Text(
+                  'The backdrop behind the car. All kept dark so the car stays '
+                  'the focus.',
+                  style: TextStyle(fontSize: 12, color: AppPalette.textMid),
+                ),
+                const SizedBox(height: 14),
+                _BackgroundRow(
+                  selectedId: _bgId,
+                  onPick: (id) => setState(() => _bgId = id),
+                ),
+                const SizedBox(height: 24),
                 const _Label('CAR COLOUR'),
                 const SizedBox(height: 4),
                 const Text(
@@ -209,9 +225,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: _lightsOn,
                   onChanged: (v) => setState(() => _lightsOn = v),
                 ),
-                const SizedBox(height: 16),
-                const Divider(color: AppPalette.divider),
-                const SizedBox(height: 12),
+
+                // ── Theme ───────────────────────────────────────────────────
+                const _SectionHeader('Theme'),
                 const _Label('ACCENT COLOUR'),
                 const SizedBox(height: 4),
                 const Text(
@@ -230,6 +246,81 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+/// A prominent section divider grouping related settings (Connection, Vehicle,
+/// Appearance, Theme). Accent-tinted so the eye can scan the page by section.
+class _SectionHeader extends StatelessWidget {
+  final String text;
+  final bool first;
+  const _SectionHeader(this.text, {this.first = false});
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(top: first ? 4 : 28, bottom: 12),
+      child: Row(
+        children: [
+          Text(text.toUpperCase(),
+              style: TextStyle(
+                fontSize: 12,
+                color: AppPalette.accent,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 2.5,
+              )),
+          const SizedBox(width: 12),
+          const Expanded(child: Divider(color: AppPalette.divider)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Swatch row for the car backdrops — each chip previews the actual gradient.
+class _BackgroundRow extends StatelessWidget {
+  final String selectedId;
+  final ValueChanged<String> onPick;
+  const _BackgroundRow({required this.selectedId, required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 14,
+      runSpacing: 14,
+      children: [
+        for (final bg in kCarBackgrounds)
+          GestureDetector(
+            onTap: () => onPick(bg.id),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    gradient: bg.gradient,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: bg.id == selectedId
+                          ? AppPalette.textHi
+                          : AppPalette.divider,
+                      width: 3,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: 56,
+                  child: Text(bg.name,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontSize: 9, color: AppPalette.textMid)),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

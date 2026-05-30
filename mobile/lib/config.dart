@@ -13,6 +13,7 @@ class PiConfig {
   static const _kLightsOn = 'lights_on';
   static const _kVehicleId = 'vehicle_id';
   static const _kAutoRotate = 'car_auto_rotate';
+  static const _kCarBackground = 'car_background';
 
   // Matches the Pi's hostname set during the 2026-05-28 field-setup session.
   // mDNS resolves this on any device on the same LAN/hotspot, regardless of
@@ -125,6 +126,18 @@ class PiConfig {
   static Future<void> setCarAutoRotate(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kAutoRotate, value);
+  }
+
+  /// Which backdrop sits behind the 3D car (see kCarBackgrounds). Stored as the
+  /// preset id; defaults to the flat near-black 'carbon'.
+  static Future<String> carBackground() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kCarBackground) ?? 'carbon';
+  }
+
+  static Future<void> setCarBackground(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kCarBackground, id);
   }
 
   static Future<int> backlogCursor() async {
