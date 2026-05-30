@@ -112,6 +112,12 @@ class _CarModel3DState extends State<CarModel3D> {
   WebViewController? _controller;
   bool _ready = false;
   int _zoom = 1; // preset zoom level: 1x / 2x / 3x
+  // Last orbit reported by the viewer. model_viewer_plus loads the WebView once
+  // and never reloads on prop changes — but the iOS WKWebView can silently
+  // reload itself (content-process jettison / platform-view detach on a modal
+  // route), which resets the camera to its initial framing. We track the live
+  // orbit here and restore it verbatim on reload so the camera never "jumps".
+  String? _lastOrbit;
 
   // Radius % per zoom level. Auto-rotate is only allowed at 1x, and never in
   // X-ray mode (a turning ghost is disorienting when reading sensor nodes).
@@ -165,11 +171,14 @@ class _CarModel3DState extends State<CarModel3D> {
       .join();
 
   // The button is a large transparent tap target (36px) so nodes are easy to
-  // hit; the visible dot inside stays small. Status colours the dot.
+  // hit; the visible dot inside stays small. Hidden by default; krApply adds
+  // `.on` (display:flex) in X-ray so the dot stays perfectly centred + round.
   static const String _relatedCss = '''
 .kr-hot{position:relative;width:36px;height:36px;border:none;background:transparent;
-  cursor:pointer;padding:0;display:none;align-items:center;justify-content:center;}
-.kr-dot{width:15px;height:15px;border-radius:50%;border:2px solid rgba(255,255,255,.85);
+  cursor:pointer;padding:0;display:none;box-sizing:border-box;}
+.kr-hot.on{display:flex;align-items:center;justify-content:center;}
+.kr-dot{flex:0 0 auto;width:16px;height:16px;aspect-ratio:1;box-sizing:border-box;
+  border-radius:50%;border:2px solid rgba(255,255,255,.85);
   background:rgba(255,255,255,.2);transition:transform .15s ease;}
 .kr-hot:active .kr-dot{transform:scale(1.35);}
 .kr-hot.live .kr-dot{border-color:#22c55e;background:#22c55e;
@@ -251,7 +260,7 @@ window.krApply = function() {
   }
   const sens = window.__krSensors || {};
   document.querySelectorAll('.kr-hot').forEach(function(el){
-    el.style.display = dep ? 'block' : 'none';
+    el.classList.toggle('on', dep);
     const st = sens[el.dataset.id] || 'available';
     el.classList.remove('live','available','fault'); el.classList.add(st);
   });
@@ -274,9 +283,27 @@ window.krZoom = function(pct, rotate) {
     if (mv.jumpCameraToGoal) mv.jumpCameraToGoal();
   } catch (e) {}
 };
+// Restore an exact prior orbit INSTANTLY (no animation). Used after a WebView
+// reload so the camera never appears to move — the reload becomes invisible.
+window.krRestore = function(orbit) {
+  try {
+    mv.cameraOrbit = orbit;
+    if (mv.jumpCameraToGoal) mv.jumpCameraToGoal();
+  } catch (e) {}
+};
 mv.addEventListener('load', function() {
   window.krSnapshot(); window.krPlace(); window.krApply();
   try { KRReady.postMessage('1'); } catch (e) {}
+});
+// Report the live orbit to Flutter (throttled) so it can be restored verbatim
+// if the WKWebView reloads. This is the only camera-state source of truth.
+let __krCamT = 0;
+mv.addEventListener('camera-change', function(){
+  const now = Date.now(); if (now - __krCamT < 250) return; __krCamT = now;
+  try {
+    const o = mv.getCameraOrbit();
+    KRCam.postMessage(o.theta + 'rad ' + o.phi + 'rad ' + o.radius + 'm');
+  } catch (e) {}
 });
 document.querySelectorAll('.kr-hot').forEach(function(el){
   el.addEventListener('click', function(){
@@ -306,10 +333,16 @@ window.krApply();
   @override
   void didUpdateWidget(CarModel3D old) {
     super.didUpdateWidget(old);
+    // Any of these go to the viewer via JS (the widget props themselves have no
+    // runtime effect after the first load). Crucially this is the ONLY path —
+    // none of it touches the camera, so toggling X-ray is a pure in-place
+    // material change. autoRotate is included so the Settings toggle applies at
+    // once (previously it only took effect on the next unrelated state change).
     if (old.bodyColor != widget.bodyColor ||
         old.wheelColor != widget.wheelColor ||
         old.lamps != widget.lamps ||
         old.inDepth != widget.inDepth ||
+        old.autoRotate != widget.autoRotate ||
         !mapEquals(old.sensorStatus, widget.sensorStatus)) {
       _push();
     }
@@ -378,14 +411,22 @@ window.krApply();
       relatedCss: _relatedCss,
       innerModelViewerHtml: _hotspotHtml(),
       javascriptChannels: {
-        // Fires on every (re)load — incl. the platform-view reload a bottom
-        // sheet can trigger. We re-assert state + framing so opening a sensor
-        // never drops X-ray or snaps the zoom back to 1x.
+        // Fires on every (re)load — incl. a silent WKWebView reload. We re-push
+        // appearance/mode, then restore the exact prior orbit INSTANTLY so the
+        // reload is invisible (no zoom-out, no lost X-ray). On the very first
+        // load there's no saved orbit, so the initial framing stands.
         JavascriptChannel('KRReady', onMessageReceived: (_) {
           _ready = true;
           _push();
-          _controller?.runJavaScript(
-              'window.krZoom&&window.krZoom(${_zoomRadius[_zoom]}, $_autoRotateEffective);');
+          final o = _lastOrbit;
+          if (o != null) {
+            _controller?.runJavaScript(
+                'window.krRestore&&window.krRestore(${jsonEncode(o)});');
+          }
+        }),
+        // Live orbit reported by the viewer; the source of truth for restore.
+        JavascriptChannel('KRCam', onMessageReceived: (msg) {
+          _lastOrbit = msg.message;
         }),
         JavascriptChannel('KRHotspot', onMessageReceived: (msg) {
           widget.onHotspotTap?.call(msg.message);

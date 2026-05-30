@@ -334,8 +334,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       backgroundColor: _T.bg,
-      body: DecoratedBox(
-        decoration: BoxDecoration(gradient: _carBg.gradient),
+      body: _Backdrop(
+        bg: _carBg,
         child: SafeArea(
         child: Column(
           children: [
@@ -392,6 +392,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+}
+
+// ─── Car backdrop (gradient + optional blueprint grid) ──────────────────────
+class _Backdrop extends StatelessWidget {
+  final CarBackground bg;
+  final Widget child;
+  const _Backdrop({required this.bg, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(gradient: bg.gradient),
+      child: bg.grid == null
+          ? child
+          : CustomPaint(painter: _GridPainter(bg.grid!), child: child),
+    );
+  }
+}
+
+/// A faint engineering-blueprint grid. Drawn over the gradient, behind the car.
+class _GridPainter extends CustomPainter {
+  final Color color;
+  const _GridPainter(this.color);
+
+  static const double _cell = 38; // grid spacing in logical px
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    for (double x = 0; x <= size.width; x += _cell) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y <= size.height; y += _cell) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GridPainter old) => old.color != color;
 }
 
 // ─── Top status bar ─────────────────────────────────────────────────────────
