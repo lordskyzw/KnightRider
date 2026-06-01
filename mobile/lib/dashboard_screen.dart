@@ -8,6 +8,9 @@ import 'backlog_db.dart';
 import 'batches_screen.dart';
 import 'car_model.dart';
 import 'config.dart';
+import 'drive_recorder.dart';
+import 'drives_db.dart';
+import 'drives_screen.dart';
 import 'dtc_screen.dart';
 import 'pi_client.dart';
 import 'sample.dart';
@@ -59,6 +62,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // Backlog + uploader state
   final _db = BacklogDb();
+  late final _recorder = DriveRecorder(db: DrivesDb());
   int _backlogTotal = 0;
   int _backlogPending = 0;
   int _backlogUploaded = 0;
@@ -114,6 +118,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // this the pill would stay green on stale data).
     _uiTimer = Timer.periodic(const Duration(milliseconds: 80), (_) {
       if (!mounted) return;
+      _recorder.tick(DateTime.now()); // close a drive once telemetry goes quiet
       final statusChanged = _linkStatus != _shownStatus;
       if (_dirty || statusChanged) {
         _dirty = false;
@@ -155,6 +160,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // _uiTimer flushes to a single setState at ~12 Hz (see _boot).
     _lastSampleAt = DateTime.now();
     _latest[s.signal] = s;
+    _recorder.onSample(s, vehicle: _vehicle.name);
     _dirty = true;
   }
 
@@ -239,6 +245,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ));
   }
 
+  void _openDrives() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const DrivesScreen(),
+    ));
+  }
+
   void _openDtc() {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => DtcScreen(latest: Map.of(_latest), host: _host),
@@ -273,6 +285,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _recorder.flush(); // persist any in-progress drive
     _sampleSub?.cancel();
     _stateSub?.cancel();
     _tickSub?.cancel();
@@ -330,6 +343,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final intake = _v('obd.intake_air_temp');
     final battery = _v('obd.battery_v');
     final fuel = _v('obd.fuel_level');
+    final o2up = _v('obd.o2s1_eq_ratio');   // upstream wide-range O2 (λ)
+    final o2down = _v('obd.o2_b1s2_v');      // downstream O2 (V)
+    final stft = _v('obd.stft_b1');          // short-term fuel trim %
+    final ltft = _v('obd.ltft_b1');          // long-term fuel trim %
+    final maf = _v('obd.maf');               // g/s
+    final catTemp = _v('obd.cat_temp_b1s1'); // °C
     final dtcCount = _v('obd.dtc_count')?.toInt() ?? 0;
 
     final dbcRpm = _v('dbc.toyota.POWERTRAIN.engine_rpm');
@@ -375,6 +394,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     _StatRow(
                       coolant: coolant, battery: battery,
                       fuel: fuel, intake: intake, live: live,
+                      o2up: o2up, o2down: o2down,
+                      stft: stft, ltft: ltft, maf: maf, catTemp: catTemp,
                     ),
                     const SizedBox(height: 16),
                     _ThinStatus(
@@ -386,6 +407,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       onSync: () => _openBatches(BatchFilter.all),
                       onDtc: _openDtc,
                       onMore: _openMore,
+                      onHistory: _openDrives,
                     ),
                   ],
                 ),
@@ -700,6 +722,12 @@ class _StatRow extends StatelessWidget {
   final double? battery; // V
   final double? fuel;    // %
   final double? intake;  // °C
+  final double? o2up;    // upstream O2, equivalence ratio (λ)
+  final double? o2down;  // downstream O2, V
+  final double? stft;    // short-term fuel trim %
+  final double? ltft;    // long-term fuel trim %
+  final double? maf;     // g/s
+  final double? catTemp; // catalyst temp °C
   final bool live;
   const _StatRow({
     required this.coolant,
@@ -707,6 +735,12 @@ class _StatRow extends StatelessWidget {
     required this.fuel,
     required this.intake,
     required this.live,
+    this.o2up,
+    this.o2down,
+    this.stft,
+    this.ltft,
+    this.maf,
+    this.catTemp,
   });
 
   static Color _coolantColor(double? c) {
@@ -724,32 +758,73 @@ class _StatRow extends StatelessWidget {
     return _T.live;
   }
 
+  Color _plain() => live ? _T.textHi : _T.textLow;
+
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        _StatCell(
-          label: 'COOLANT',
-          value: coolant == null ? '—' : '${coolant!.round()}°',
-          color: live ? _coolantColor(coolant) : _T.textLow,
-        ),
-        _StatCell(
-          label: 'BATTERY',
-          value: battery == null ? '—' : '${battery!.toStringAsFixed(1)}v',
-          color: live ? _batteryColor(battery) : _T.textLow,
-        ),
-        _StatCell(
-          label: 'FUEL',
-          value: fuel == null ? '—' : '${fuel!.round()}%',
-          color: live ? _T.textHi : _T.textLow,
-        ),
-        _StatCell(
-          label: 'INTAKE',
-          value: intake == null ? '—' : '${intake!.round()}°',
-          color: live ? _T.textHi : _T.textLow,
-        ),
-      ],
+    // A horizontally scrollable strip so any number of live stats fits without
+    // overflow. Curated for at-a-glance observing; the full set is in "All signals".
+    final cells = <Widget>[
+      _StatCell(
+        label: 'COOLANT',
+        value: coolant == null ? '—' : '${coolant!.round()}°',
+        color: live ? _coolantColor(coolant) : _T.textLow,
+      ),
+      _StatCell(
+        label: 'O₂ ↑',
+        value: o2up == null ? '—' : o2up!.toStringAsFixed(2),
+        color: _plain(),
+      ),
+      _StatCell(
+        label: 'O₂ ↓',
+        value: o2down == null ? '—' : '${o2down!.toStringAsFixed(2)}v',
+        color: _plain(),
+      ),
+      _StatCell(
+        label: 'STFT',
+        value: stft == null ? '—' : '${stft! >= 0 ? '+' : ''}${stft!.toStringAsFixed(1)}%',
+        color: _plain(),
+      ),
+      _StatCell(
+        label: 'LTFT',
+        value: ltft == null ? '—' : '${ltft! >= 0 ? '+' : ''}${ltft!.toStringAsFixed(1)}%',
+        color: _plain(),
+      ),
+      _StatCell(
+        label: 'MAF',
+        value: maf == null ? '—' : maf!.toStringAsFixed(1),
+        color: _plain(),
+      ),
+      _StatCell(
+        label: 'CAT',
+        value: catTemp == null ? '—' : '${catTemp!.round()}°',
+        color: _plain(),
+      ),
+      _StatCell(
+        label: 'INTAKE',
+        value: intake == null ? '—' : '${intake!.round()}°',
+        color: _plain(),
+      ),
+      _StatCell(
+        label: 'BATTERY',
+        value: battery == null ? '—' : '${battery!.toStringAsFixed(1)}v',
+        color: live ? _batteryColor(battery) : _T.textLow,
+      ),
+      _StatCell(
+        label: 'FUEL',
+        value: fuel == null ? '—' : '${fuel!.round()}%',
+        color: _plain(),
+      ),
+    ];
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: cells.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 22),
+        itemBuilder: (_, i) => Center(child: cells[i]),
+      ),
     );
   }
 }
@@ -821,6 +896,7 @@ class _ThinStatus extends StatelessWidget {
   final VoidCallback onSync;
   final VoidCallback onDtc;
   final VoidCallback onMore;
+  final VoidCallback onHistory;
   const _ThinStatus({
     required this.total,
     required this.pending,
@@ -830,6 +906,7 @@ class _ThinStatus extends StatelessWidget {
     required this.onSync,
     required this.onDtc,
     required this.onMore,
+    required this.onHistory,
   });
 
   @override
@@ -862,6 +939,13 @@ class _ThinStatus extends StatelessWidget {
               color: dtcOk ? _T.textMid : _T.accent,
             ),
             const SizedBox(width: 2),
+            IconButton(
+              onPressed: onHistory,
+              iconSize: 18,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.history_rounded, color: _T.textMid),
+              tooltip: 'Drive history',
+            ),
             IconButton(
               onPressed: onMore,
               iconSize: 18,

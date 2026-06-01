@@ -37,7 +37,7 @@ const List<SensorNode> kSensorNodes = [
     where: 'Engine bay — front',
     signals: [
       'obd.rpm', 'dbc.toyota.POWERTRAIN.engine_rpm', 'obd.engine_load',
-      'obd.timing_advance', 'obd.stft_b1', 'obd.ltft_b1',
+      'obd.abs_load', 'obd.timing_advance', 'obd.stft_b1', 'obd.ltft_b1',
     ],
     nx: 0.0, ny: 0.18, nz: 0.62,
   ),
@@ -70,7 +70,8 @@ const List<SensorNode> kSensorNodes = [
     label: 'Exhaust & catalyst',
     where: 'Catalytic converter & O₂ sensor — underbody',
     signals: [
-      'obd.cat_temp_b1s1', 'obd.cat_temp_b1s2', 'obd.o2_b1s2_v',
+      'obd.cat_temp_b1s1', 'obd.cat_temp_b1s2',
+      'obd.o2s1_eq_ratio', 'obd.o2_b1s2_v',
       'obd.commanded_lambda',
     ],
     faultKeys: ['dtc.stored.p0420', 'dtc.stored.p0430'],
