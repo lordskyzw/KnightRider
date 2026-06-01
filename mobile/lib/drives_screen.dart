@@ -23,6 +23,7 @@ class _DrivesScreenState extends State<DrivesScreen> {
   }
 
   Future<void> _load() async {
+    await _db.ensureSeededHistory(); // backfill the 2026-06-01 Vitz reference drive
     final rows = await _db.recent();
     if (!mounted) return;
     setState(() => _rows = rows);

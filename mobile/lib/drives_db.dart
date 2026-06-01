@@ -49,6 +49,26 @@ class DrivesDb {
     return db.insert('drives', d.toMap());
   }
 
+  /// One-time backfill of the 2026-06-01 Vitz reference drive. That session was
+  /// captured before the recorder existed, so it can't be recorded live; these
+  /// are its real decoded stats (see captures/vitz-drive-20260601.summary.md).
+  /// Idempotent: keyed on started_at, so it inserts at most once.
+  Future<void> ensureSeededHistory() async {
+    final db = await _open();
+    const started = '2026-06-01T08:04:25.000Z';
+    final existing = await db.query('drives',
+        where: 'started_at = ?', whereArgs: [started], limit: 1);
+    if (existing.isNotEmpty) return;
+    await db.insert('drives', DriveRecord(
+      vehicle: 'Toyota Vitz (NSP130)',
+      startedAt: DateTime.parse(started),
+      endedAt: DateTime.parse('2026-06-01T08:28:04.000Z'),
+      sampleCount: 489193,
+      maxSpeed: 70, maxRpm: 3362, maxCoolant: 94,
+      o2upMin: 0.814, o2upMax: 1.233, dtcCount: 0,
+    ).toMap());
+  }
+
   Future<List<DriveRecord>> recent({int limit = 200}) async {
     final db = await _open();
     final rows = await db.query('drives', orderBy: 'started_at DESC', limit: limit);
