@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -11,7 +13,7 @@ import 'package:sqflite/sqflite.dart';
 /// session. v1 stores a per-drive rollup; the raw series for replay can be
 /// added later.
 class DrivesDb {
-  static const _schemaVersion = 2;
+  static const _schemaVersion = 3;
   Database? _db;
 
   Future<Database> _open() async {
@@ -24,9 +26,11 @@ class DrivesDb {
       onCreate: (db, _) async {
         await _createDrives(db);
         await _createActions(db);
+        await _createSeries(db);
       },
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 2) await _createActions(db); // actions added in v2
+        if (oldV < 3) await _createSeries(db);  // replay series added in v3
       },
     );
     return _db!;
@@ -63,6 +67,39 @@ class DrivesDb {
     ''');
   }
 
+  static Future<void> _createSeries(Database db) async {
+    // One downsampled time series per drive, stored as the same JSON shape as
+    // the bundled asset: {signals:[...], duration_s, frames:[[t,v0,v1,...]]}.
+    await db.execute('''
+      CREATE TABLE drive_series (
+        drive_id INTEGER PRIMARY KEY,
+        json     TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> putSeries(int driveId, String json) async {
+    final db = await _open();
+    await db.insert('drive_series', {'drive_id': driveId, 'json': json},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<DriveSeries?> getSeries(int driveId) async {
+    final db = await _open();
+    final rows = await db.query('drive_series',
+        where: 'drive_id = ?', whereArgs: [driveId], limit: 1);
+    if (rows.isEmpty) return null;
+    return DriveSeries.fromJson(
+        jsonDecode(rows.first['json'] as String) as Map<String, dynamic>);
+  }
+
+  Future<bool> hasSeries(int driveId) async {
+    final db = await _open();
+    final rows = await db.query('drive_series',
+        columns: ['drive_id'], where: 'drive_id = ?', whereArgs: [driveId], limit: 1);
+    return rows.isNotEmpty;
+  }
+
   // ── actions (write operations performed on the car) ────────────────────────
   Future<int> insertAction(ActionRecord a) async {
     final db = await _open();
@@ -84,21 +121,30 @@ class DrivesDb {
   /// One-time backfill of the 2026-06-01 Vitz reference drive. That session was
   /// captured before the recorder existed, so it can't be recorded live; these
   /// are its real decoded stats (see captures/vitz-drive-20260601.summary.md).
-  /// Idempotent: keyed on started_at, so it inserts at most once.
-  Future<void> ensureSeededHistory() async {
+  /// Idempotent: keyed on started_at. Find-or-create the drive, then attach its
+  /// replay [seriesJson] (the bundled asset) if not already stored — so existing
+  /// installs that seeded the drive before replay existed get the series too.
+  Future<void> ensureSeededHistory({String? seriesJson}) async {
     final db = await _open();
     const started = '2026-06-01T08:04:25.000Z';
     final existing = await db.query('drives',
-        where: 'started_at = ?', whereArgs: [started], limit: 1);
-    if (existing.isNotEmpty) return;
-    await db.insert('drives', DriveRecord(
-      vehicle: 'Toyota Vitz (NSP130)',
-      startedAt: DateTime.parse(started),
-      endedAt: DateTime.parse('2026-06-01T08:28:04.000Z'),
-      sampleCount: 489193,
-      maxSpeed: 70, maxRpm: 3362, maxCoolant: 94,
-      o2upMin: 0.814, o2upMax: 1.233, dtcCount: 0,
-    ).toMap());
+        columns: ['id'], where: 'started_at = ?', whereArgs: [started], limit: 1);
+    int driveId;
+    if (existing.isNotEmpty) {
+      driveId = existing.first['id'] as int;
+    } else {
+      driveId = await db.insert('drives', DriveRecord(
+        vehicle: 'Toyota Vitz (NSP130)',
+        startedAt: DateTime.parse(started),
+        endedAt: DateTime.parse('2026-06-01T08:28:04.000Z'),
+        sampleCount: 489193,
+        maxSpeed: 70, maxRpm: 3362, maxCoolant: 94,
+        o2upMin: 0.814, o2upMax: 1.233, dtcCount: 0,
+      ).toMap());
+    }
+    if (seriesJson != null && !await hasSeries(driveId)) {
+      await putSeries(driveId, seriesJson);
+    }
   }
 
   /// One-time backfill of the 2026-06-01 P0420 clear on the Vitz, performed
@@ -234,5 +280,47 @@ class ActionRecord {
         performedAt: DateTime.parse(m['performed_at'] as String),
         ok: (m['ok'] as int) == 1,
         detail: m['detail'] as String?,
+      );
+}
+
+/// A downsampled (~1 Hz) time series for replaying a drive. Frames are
+/// [t_seconds, v0, v1, ...] aligned to [signals]; values are forward-filled, so
+/// any frame is the last-known reading. Same JSON shape as the bundled asset.
+class DriveSeries {
+  final List<String> signals;
+  final int durationS;
+  final List<List<num?>> frames;
+
+  DriveSeries({required this.signals, required this.durationS, required this.frames});
+
+  int get length => frames.length;
+
+  /// Index of the last frame whose timestamp is <= [second] (binary search, so
+  /// it's correct even if a live recording skipped a second).
+  int indexAt(int second) {
+    if (frames.isEmpty) return 0;
+    int lo = 0, hi = frames.length - 1, ans = 0;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      if ((frames[mid][0] ?? 0) <= second) { ans = mid; lo = mid + 1; }
+      else { hi = mid - 1; }
+    }
+    return ans;
+  }
+
+  /// Value of [signal] at frame [i], or null if missing.
+  double? valueAt(int i, String signal) {
+    final si = signals.indexOf(signal);
+    if (si < 0 || i < 0 || i >= frames.length) return null;
+    final v = frames[i][si + 1]; // +1: column 0 is the timestamp
+    return v?.toDouble();
+  }
+
+  static DriveSeries fromJson(Map<String, dynamic> j) => DriveSeries(
+        signals: (j['signals'] as List).cast<String>(),
+        durationS: (j['duration_s'] as num).toInt(),
+        frames: (j['frames'] as List)
+            .map((f) => (f as List).map((x) => x as num?).toList())
+            .toList(),
       );
 }

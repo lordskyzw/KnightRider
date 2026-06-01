@@ -54,6 +54,7 @@ flutter:
 
   assets:
     - assets/cars/
+    - assets/drives/
 
 # Source art lives in assets/icon/ (see tool/gen_icon.py) but is NOT bundled
 # at runtime — it's only an input to icon generation.

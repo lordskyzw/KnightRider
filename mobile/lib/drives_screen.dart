@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 
 import 'app_theme.dart';
 import 'drives_db.dart';
+import 'replay_screen.dart';
 
 /// History of recorded drives: a list, tap for a per-drive detail rollup.
 class DrivesScreen extends StatefulWidget {
@@ -25,8 +27,13 @@ class _DrivesScreenState extends State<DrivesScreen> {
   }
 
   Future<void> _load() async {
-    await _db.ensureSeededHistory(); // backfill the 2026-06-01 Vitz reference drive
-    await _db.ensureSeededActions(); // backfill the historical P0420 clear (Axio)
+    // Backfill the 2026-06-01 Vitz reference drive + its bundled replay series.
+    String? seriesJson;
+    try {
+      seriesJson = await rootBundle.loadString('assets/drives/vitz-20260601.json');
+    } catch (_) {/* asset missing -> drive still seeds without replay */}
+    await _db.ensureSeededHistory(seriesJson: seriesJson);
+    await _db.ensureSeededActions(); // backfill the real 2026-06-01 Vitz P0420 clear
     final rows = await _db.recent();
     final acts = await _db.recentActions();
     if (!mounted) return;
@@ -205,6 +212,19 @@ class _DriveDetail extends StatelessWidget {
         foregroundColor: AppPalette.textHi,
         elevation: 0,
         title: Text(DateFormat('d MMM, HH:mm').format(d.startedAt.toLocal())),
+        actions: [
+          if (d.id != null)
+            IconButton(
+              icon: const Icon(Icons.play_circle_outline),
+              tooltip: 'Replay',
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => ReplayScreen(
+                  driveId: d.id!,
+                  title: DateFormat('d MMM').format(d.startedAt.toLocal()),
+                ),
+              )),
+            ),
+        ],
       ),
       body: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 8),
