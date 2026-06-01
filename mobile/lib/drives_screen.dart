@@ -15,6 +15,8 @@ class DrivesScreen extends StatefulWidget {
 class _DrivesScreenState extends State<DrivesScreen> {
   final _db = DrivesDb();
   List<DriveRecord>? _rows;
+  List<ActionRecord>? _actions;
+  int _tab = 0; // 0 = Drives, 1 = Actions
 
   @override
   void initState() {
@@ -24,38 +26,109 @@ class _DrivesScreenState extends State<DrivesScreen> {
 
   Future<void> _load() async {
     await _db.ensureSeededHistory(); // backfill the 2026-06-01 Vitz reference drive
+    await _db.ensureSeededActions(); // backfill the historical P0420 clear (Axio)
     final rows = await _db.recent();
+    final acts = await _db.recentActions();
     if (!mounted) return;
-    setState(() => _rows = rows);
+    setState(() {
+      _rows = rows;
+      _actions = acts;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final rows = _rows;
     return Scaffold(
       backgroundColor: AppPalette.bg,
       appBar: AppBar(
         backgroundColor: AppPalette.bg,
         foregroundColor: AppPalette.textHi,
         elevation: 0,
-        title: const Text('Drive history'),
+        title: const Text('History'),
       ),
-      body: rows == null
-          ? const Center(child: CircularProgressIndicator())
-          : rows.isEmpty
-              ? const _Empty()
-              : ListView.separated(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: rows.length,
-                  separatorBuilder: (_, _) =>
-                      const Divider(height: 1, color: AppPalette.divider),
-                  itemBuilder: (_, i) => _DriveTile(
-                    d: rows[i],
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => _DriveDetail(d: rows[i]),
-                    )),
-                  ),
-                ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 0, label: Text('Drives'), icon: Icon(Icons.route_outlined)),
+                ButtonSegment(value: 1, label: Text('Actions'), icon: Icon(Icons.bolt_outlined)),
+              ],
+              selected: {_tab},
+              onSelectionChanged: (s) => setState(() => _tab = s.first),
+            ),
+          ),
+          Expanded(child: _tab == 0 ? _buildDrives() : _buildActions()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrives() {
+    final rows = _rows;
+    if (rows == null) return const Center(child: CircularProgressIndicator());
+    if (rows.isEmpty) {
+      return const _Empty(
+        icon: Icons.route_outlined,
+        title: 'No drives recorded yet',
+        body: 'Connect to the car and drive — each session is saved here automatically.',
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      itemCount: rows.length,
+      separatorBuilder: (_, _) => const Divider(height: 1, color: AppPalette.divider),
+      itemBuilder: (_, i) => _DriveTile(
+        d: rows[i],
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => _DriveDetail(d: rows[i]),
+        )),
+      ),
+    );
+  }
+
+  Widget _buildActions() {
+    final acts = _actions;
+    if (acts == null) return const Center(child: CircularProgressIndicator());
+    if (acts.isEmpty) {
+      return const _Empty(
+        icon: Icons.bolt_outlined,
+        title: 'No actions yet',
+        body: 'Write operations you perform on the car — like clearing fault codes — are logged here.',
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      itemCount: acts.length,
+      separatorBuilder: (_, _) => const Divider(height: 1, color: AppPalette.divider),
+      itemBuilder: (_, i) => _ActionTile(a: acts[i]),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  final ActionRecord a;
+  const _ActionTile({required this.a});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = a.ok ? AppPalette.live : AppPalette.warning;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+      leading: Icon(a.ok ? Icons.check_circle_outline : Icons.error_outline, color: color),
+      title: Text(a.title,
+          style: const TextStyle(color: AppPalette.textHi, fontWeight: FontWeight.w600)),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          '${DateFormat('EEE d MMM, HH:mm').format(a.performedAt.toLocal())}'
+          '  ·  ${a.vehicle}'
+          '${a.detail != null ? '\n${a.detail}' : ''}',
+          style: const TextStyle(color: AppPalette.textMid, fontSize: 13),
+        ),
+      ),
+      isThreeLine: a.detail != null,
     );
   }
 }
@@ -157,23 +230,26 @@ class _DriveDetail extends StatelessWidget {
 }
 
 class _Empty extends StatelessWidget {
-  const _Empty();
+  final IconData icon;
+  final String title;
+  final String body;
+  const _Empty({required this.icon, required this.title, required this.body});
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(40),
+        padding: const EdgeInsets.all(40),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.route_outlined, size: 48, color: AppPalette.textLow),
-            SizedBox(height: 16),
-            Text('No drives recorded yet',
-                style: TextStyle(color: AppPalette.textMid, fontSize: 16, fontWeight: FontWeight.w600)),
-            SizedBox(height: 8),
-            Text('Connect to the car and drive — each session is saved here automatically.',
+            Icon(icon, size: 48, color: AppPalette.textLow),
+            const SizedBox(height: 16),
+            Text(title,
+                style: const TextStyle(color: AppPalette.textMid, fontSize: 16, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Text(body,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppPalette.textLow, fontSize: 13)),
+                style: const TextStyle(color: AppPalette.textLow, fontSize: 13)),
           ],
         ),
       ),

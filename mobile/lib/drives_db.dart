@@ -11,7 +11,7 @@ import 'package:sqflite/sqflite.dart';
 /// session. v1 stores a per-drive rollup; the raw series for replay can be
 /// added later.
 class DrivesDb {
-  static const _schemaVersion = 1;
+  static const _schemaVersion = 2;
   Database? _db;
 
   Future<Database> _open() async {
@@ -21,12 +21,18 @@ class DrivesDb {
     _db = await openDatabase(
       path,
       version: _schemaVersion,
-      onCreate: (db, _) async => _createSchema(db),
+      onCreate: (db, _) async {
+        await _createDrives(db);
+        await _createActions(db);
+      },
+      onUpgrade: (db, oldV, newV) async {
+        if (oldV < 2) await _createActions(db); // actions added in v2
+      },
     );
     return _db!;
   }
 
-  static Future<void> _createSchema(Database db) async {
+  static Future<void> _createDrives(Database db) async {
     await db.execute('''
       CREATE TABLE drives (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,6 +48,32 @@ class DrivesDb {
         dtc_count    INTEGER
       )
     ''');
+  }
+
+  static Future<void> _createActions(Database db) async {
+    await db.execute('''
+      CREATE TABLE actions (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        type         TEXT NOT NULL,
+        vehicle      TEXT NOT NULL,
+        performed_at TEXT NOT NULL,
+        ok           INTEGER NOT NULL,
+        detail       TEXT
+      )
+    ''');
+  }
+
+  // ── actions (write operations performed on the car) ────────────────────────
+  Future<int> insertAction(ActionRecord a) async {
+    final db = await _open();
+    return db.insert('actions', a.toMap());
+  }
+
+  Future<List<ActionRecord>> recentActions({int limit = 200}) async {
+    final db = await _open();
+    final rows =
+        await db.query('actions', orderBy: 'performed_at DESC', limit: limit);
+    return rows.map(ActionRecord.fromMap).toList();
   }
 
   Future<int> insertDrive(DriveRecord d) async {
@@ -66,6 +98,25 @@ class DrivesDb {
       sampleCount: 489193,
       maxSpeed: 70, maxRpm: 3362, maxCoolant: 94,
       o2upMin: 0.814, o2upMax: 1.233, dtcCount: 0,
+    ).toMap());
+  }
+
+  /// One-time backfill of the 2026-06-01 P0420 clear on the Vitz, performed
+  /// before this action log existed. Timestamp + outcome are the real values
+  /// from the Pi journal (clear OK at 07:54:30Z; stored DTC set went
+  /// ["P0420"] -> [] by 07:55:07Z). Idempotent on performed_at.
+  Future<void> ensureSeededActions() async {
+    final db = await _open();
+    const at = '2026-06-01T07:54:30.000Z';
+    final existing = await db.query('actions',
+        where: 'performed_at = ?', whereArgs: [at], limit: 1);
+    if (existing.isNotEmpty) return;
+    await db.insert('actions', ActionRecord(
+      type: 'clear_dtc',
+      vehicle: 'Toyota Vitz (NSP130)',
+      performedAt: DateTime.parse(at),
+      ok: true,
+      detail: 'Cleared P0420; check-engine light reset (readiness monitors reset)',
     ).toMap());
   }
 
@@ -140,5 +191,48 @@ class DriveRecord {
         o2upMin: (m['o2up_min'] as num?)?.toDouble(),
         o2upMax: (m['o2up_max'] as num?)?.toDouble(),
         dtcCount: (m['dtc_count'] as int?) ?? 0,
+      );
+}
+
+/// A write action performed on the car (the "leave no action behind" log).
+/// v1 records DTC clears (OBD-II Mode 0x04); the schema is generic for future
+/// write ops.
+class ActionRecord {
+  final int? id;
+  final String type;      // 'clear_dtc'
+  final String vehicle;
+  final DateTime performedAt;
+  final bool ok;
+  final String? detail;   // e.g. 'Cleared P0420, P0171; MIL reset'
+
+  ActionRecord({
+    this.id,
+    required this.type,
+    required this.vehicle,
+    required this.performedAt,
+    required this.ok,
+    this.detail,
+  });
+
+  String get title => switch (type) {
+        'clear_dtc' => 'Cleared fault codes',
+        _ => type,
+      };
+
+  Map<String, Object?> toMap() => {
+        'type': type,
+        'vehicle': vehicle,
+        'performed_at': performedAt.toIso8601String(),
+        'ok': ok ? 1 : 0,
+        'detail': detail,
+      };
+
+  static ActionRecord fromMap(Map<String, Object?> m) => ActionRecord(
+        id: m['id'] as int?,
+        type: m['type'] as String,
+        vehicle: m['vehicle'] as String,
+        performedAt: DateTime.parse(m['performed_at'] as String),
+        ok: (m['ok'] as int) == 1,
+        detail: m['detail'] as String?,
       );
 }

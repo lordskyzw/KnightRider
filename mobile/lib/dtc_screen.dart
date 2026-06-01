@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'drives_db.dart';
 import 'dtc_codes.dart';
 import 'pi_client.dart';
 import 'sample.dart';
@@ -12,7 +13,17 @@ class DtcScreen extends StatelessWidget {
   final Map<String, Sample> latest;
   /// Pi host:port — used to POST the Mode 0x04 clear request.
   final String host;
-  const DtcScreen({super.key, required this.latest, required this.host});
+  /// Current vehicle name, recorded with the clear action.
+  final String vehicle;
+  const DtcScreen({
+    super.key,
+    required this.latest,
+    required this.host,
+    this.vehicle = 'Vehicle',
+  });
+
+  static String _codeOf(String signalKey) =>
+      signalKey.split('.').last.toUpperCase();
 
   @override
   Widget build(BuildContext context) {
@@ -63,7 +74,11 @@ class DtcScreen extends StatelessWidget {
                 _DtcRow(sample: s, isStored: false)),
           ],
           const SizedBox(height: 20),
-          _ClearCodesButton(host: host),
+          _ClearCodesButton(
+            host: host,
+            vehicle: vehicle,
+            storedCodes: stored.map((s) => _codeOf(s.signal)).toList(),
+          ),
           const SizedBox(height: 24),
         ],
       ),
@@ -76,7 +91,13 @@ class DtcScreen extends StatelessWidget {
 /// reports the ECU's answer. The Pi enforces the engine-off safety gate.
 class _ClearCodesButton extends StatefulWidget {
   final String host;
-  const _ClearCodesButton({required this.host});
+  final String vehicle;
+  final List<String> storedCodes;
+  const _ClearCodesButton({
+    required this.host,
+    required this.vehicle,
+    required this.storedCodes,
+  });
   @override
   State<_ClearCodesButton> createState() => _ClearCodesButtonState();
 }
@@ -126,6 +147,20 @@ class _ClearCodesButtonState extends State<_ClearCodesButton> {
     } finally {
       client.close();
     }
+    // Leave no action behind: persist this write op to the action log.
+    final codes = widget.storedCodes;
+    final detail = res.ok
+        ? (codes.isEmpty
+            ? 'Mode 04 sent; MIL reset'
+            : 'Cleared ${codes.join(', ')}; MIL reset')
+        : 'Failed: ${res.message}';
+    await DrivesDb().insertAction(ActionRecord(
+      type: 'clear_dtc',
+      vehicle: widget.vehicle,
+      performedAt: DateTime.now(),
+      ok: res.ok,
+      detail: detail,
+    ));
     if (!mounted) return;
     setState(() => _busy = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
