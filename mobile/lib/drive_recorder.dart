@@ -1,13 +1,16 @@
+import 'dart:convert';
+
 import 'drives_db.dart';
 import 'sample.dart';
 
-/// Turns the live sample stream into recorded [DriveRecord]s.
+/// Turns the live sample stream into recorded [DriveRecord]s plus a downsampled
+/// (~1 Hz) replay series.
 ///
 /// A drive opens on the first telemetry sample and closes after [gap] with no
 /// telemetry (disconnect, or parked with ignition off). Drives shorter than
-/// [minDuration] are discarded as noise (e.g. a brief reconnect). The recorder
-/// is fed from the dashboard's existing sample handler and polled once per UI
-/// tick to detect the closing gap even when no further samples arrive.
+/// [minDuration] are discarded as noise. The recorder is fed from the
+/// dashboard's sample handler and polled once per UI tick to detect the closing
+/// gap even when no further samples arrive.
 class DriveRecorder {
   final DrivesDb db;
   final Duration gap;
@@ -19,7 +22,21 @@ class DriveRecorder {
     this.minDuration = const Duration(seconds: 60),
   });
 
-  // Open-drive accumulators (null when no drive is in progress).
+  /// Replay signals, in frame-column order (must match the bundled asset).
+  static const Map<String, String> replaySignals = {
+    'obd.speed': 'speed',
+    'obd.rpm': 'rpm',
+    'obd.coolant_temp': 'coolant',
+    'obd.o2s1_eq_ratio': 'o2up',
+    'obd.o2_b1s2_v': 'o2down',
+    'obd.stft_b1': 'stft',
+    'obd.ltft_b1': 'ltft',
+    'obd.maf': 'maf',
+    'obd.throttle': 'throttle',
+    'obd.cat_temp_b1s1': 'cat',
+  };
+  static final List<String> _shortKeys = replaySignals.values.toList();
+
   DateTime? _startedAt;
   DateTime? _lastSampleAt;
   String _vehicle = 'Vehicle';
@@ -27,11 +44,15 @@ class DriveRecorder {
   double? _maxSpeed, _maxRpm, _maxCoolant, _o2upMin, _o2upMax;
   int _dtc = 0;
 
+  // Replay series accumulators.
+  final Map<String, double> _last = {};
+  final List<List<num?>> _frames = [];
+  int _lastFrameSec = -1;
+
   bool get isRecording => _startedAt != null;
 
   void onSample(Sample s, {required String vehicle}) {
     final now = DateTime.now();
-    // A telemetry gap closes the previous drive before this one starts.
     if (_startedAt != null && _lastSampleAt != null &&
         now.difference(_lastSampleAt!) > gap) {
       _finalize();
@@ -54,6 +75,15 @@ class DriveRecorder {
       case 'obd.dtc_count':
         _dtc = s.value.round();
     }
+
+    // Replay frame buffering: keep last-known values, emit one frame per second.
+    final short = replaySignals[s.signal];
+    if (short != null) _last[short] = s.value;
+    final sec = now.difference(_startedAt!).inSeconds;
+    if (sec > _lastFrameSec) {
+      _frames.add([sec, ..._shortKeys.map((k) => _last[k])]);
+      _lastFrameSec = sec;
+    }
   }
 
   /// Polled from the UI tick. Closes the drive once the telemetry gap elapses.
@@ -68,8 +98,6 @@ class DriveRecorder {
   void flush() => _finalize();
 
   void _finalize() {
-    // Capture everything into locals, then reset, then persist — so the
-    // (un-awaited) async insert can't race the cleared accumulators.
     final start = _startedAt, last = _lastSampleAt;
     final rec = (start == null || last == null)
         ? null
@@ -85,10 +113,24 @@ class DriveRecorder {
             o2upMax: _o2upMax,
             dtcCount: _dtc,
           );
+    final frames = List<List<num?>>.from(_frames);
+    final durationS = _lastFrameSec;
     _reset();
-    if (rec == null) return;
-    if (rec.duration < minDuration) return; // too short, discard
-    db.insertDrive(rec);
+    if (rec == null || rec.duration < minDuration) return;
+    _persist(rec, frames, durationS);
+  }
+
+  Future<void> _persist(DriveRecord rec, List<List<num?>> frames, int durationS) async {
+    final id = await db.insertDrive(rec);
+    if (frames.isNotEmpty) {
+      final json = jsonEncode({
+        'vehicle': rec.vehicle,
+        'duration_s': durationS,
+        'signals': _shortKeys,
+        'frames': frames,
+      });
+      await db.putSeries(id, json);
+    }
   }
 
   void _reset() {
@@ -97,6 +139,9 @@ class DriveRecorder {
     _count = 0;
     _maxSpeed = _maxRpm = _maxCoolant = _o2upMin = _o2upMax = null;
     _dtc = 0;
+    _last.clear();
+    _frames.clear();
+    _lastFrameSec = -1;
   }
 
   static double _max(double? a, double b) => (a == null || b > a) ? b : a;
